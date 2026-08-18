@@ -1,0 +1,47 @@
+name: dana_app
+description: "Dana English learning centre — students and teachers"
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.12.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+  # Deliberately few dependencies: fewer moving parts to resolve on a
+  # first build, and nothing here needs a code generator.
+  http: ^1.2.0
+  shared_preferences: ^2.3.0
+  # Renders the icon SVGs exported from Figma, so the glyphs are the
+  # designer's own rather than Material lookalikes.
+  flutter_svg: ^2.0.10
+  flutter_tts: ^4.2.5
+  audioplayers: ^6.8.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.1
+
+# The launcher icon, generated from the designer's 1024px export so every
+# density comes from one source (`dart run flutter_launcher_icons`).
+# adaptive_icon_background is the brand maroon the artwork already sits on,
+# so Android's round/squircle masks crop into colour, never transparency.
+flutter_launcher_icons:
+  image_path: assets/brand/app_icon.png
+  android: true
+  ios: true
+  remove_alpha_ios: true
+  adaptive_icon_background: "#7C0C3E"
+  adaptive_icon_foreground: assets/brand/app_icon.png
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/icons/
+    - assets/brand/
+    # Memoji end-screen art cropped from the client's design file
+    # (docs/design/redesign-2026-08). Exercise and exam share them.
+    - assets/illustrations/

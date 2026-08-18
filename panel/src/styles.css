@@ -1,0 +1,435 @@
+/* Tokens measured from the Figma file — same values as the Flutter
+   theme, so the panel and the app read as one product.
+   See docs/06-DESIGN-SYSTEM.md. */
+:root {
+  --brand: #7c0c3e;
+  --brand-soft: rgba(124, 12, 62, 0.08);
+  --surface: #faf8f9;
+  --card: #ffffff;
+  --border: #f0e9ec;
+  --muted: #7d7477;
+  --text: #2b1b22;
+  --success: #1e7f4f;
+  --error: #c0392b;
+  --radius: 12px;
+  --radius-lg: 16px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--surface);
+  color: var(--text);
+  font-family: Inter, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 15px;
+  letter-spacing: -0.01em;
+}
+
+button {
+  font: inherit;
+  cursor: pointer;
+}
+
+input,
+select,
+textarea {
+  font: inherit;
+  width: 100%;
+  padding: 11px 14px;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--card);
+  color: var(--text);
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--brand);
+}
+
+label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+}
+
+.field {
+  margin-bottom: 16px;
+}
+
+.btn {
+  padding: 11px 18px;
+  border: none;
+  border-radius: var(--radius);
+  background: var(--brand);
+  color: #fff;
+  font-weight: 600;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--brand);
+  border: 1.5px solid var(--brand);
+}
+
+.btn-danger {
+  background: var(--error);
+}
+
+.btn-sm {
+  padding: 7px 12px;
+  font-size: 13px;
+}
+
+.card {
+  background: var(--card);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  margin-bottom: 16px;
+}
+
+.card h2 {
+  margin: 0 0 16px;
+  font-size: 17px;
+  font-weight: 600;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+th {
+  text-align: left;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+  padding: 0 10px 10px;
+  border-bottom: 1.5px solid var(--border);
+}
+
+td {
+  padding: 12px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+tr:last-child td {
+  border-bottom: none;
+}
+
+.shell {
+  display: grid;
+  grid-template-columns: 232px 1fr;
+  min-height: 100vh;
+}
+
+.sidebar {
+  background: var(--brand);
+  color: #fff;
+  padding: 24px 16px;
+}
+
+.sidebar .brand {
+  font-size: 24px;
+  font-weight: 700;
+  padding: 0 10px 4px;
+}
+
+.sidebar .who {
+  font-size: 12px;
+  opacity: 0.75;
+  padding: 0 10px 24px;
+}
+
+.nav-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 11px 12px;
+  margin-bottom: 4px;
+  border: none;
+  border-radius: var(--radius);
+  background: transparent;
+  color: rgba(255, 255, 255, 0.85);
+  font-weight: 500;
+}
+
+.nav-item:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.nav-item.active {
+  background: #fff;
+  color: var(--brand);
+  font-weight: 600;
+}
+
+.content {
+  padding: 28px 32px;
+  max-width: 1100px;
+}
+
+.content h1 {
+  margin: 0 0 4px;
+  font-size: 24px;
+  font-weight: 700;
+}
+
+.content .sub {
+  color: var(--muted);
+  font-size: 14px;
+  margin-bottom: 24px;
+}
+
+.row {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.row > * {
+  flex: 1;
+  min-width: 180px;
+}
+
+.alert {
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  font-size: 14px;
+  margin-bottom: 16px;
+}
+
+.alert-error {
+  background: rgba(192, 57, 43, 0.08);
+  color: var(--error);
+}
+
+.alert-ok {
+  background: rgba(30, 127, 79, 0.08);
+  color: var(--success);
+}
+
+.alert-warn {
+  background: rgba(124, 12, 62, 0.06);
+  color: var(--brand);
+}
+
+.badge {
+  display: inline-block;
+  padding: 3px 9px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--brand-soft);
+  color: var(--brand);
+}
+
+.muted {
+  color: var(--muted);
+}
+
+/* --- section headers with inline actions ------------------------- */
+.card-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.card-head h2 {
+  margin: 0;
+  flex: 1;
+}
+
+.inline-select {
+  width: auto;
+  padding: 7px 10px;
+  font-size: 13px;
+}
+
+/* Forms open inside their section rather than stacking at the bottom,
+   so the action stays next to the thing it acts on. */
+.inset {
+  background: var(--surface);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px;
+  margin-bottom: 18px;
+}
+
+.group {
+  margin-bottom: 22px;
+}
+
+.group-head {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--brand);
+  padding-bottom: 8px;
+}
+
+.hint {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.with-action {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.with-action input {
+  flex: 1;
+}
+
+.with-action .btn {
+  white-space: nowrap;
+}
+
+.segmented {
+  display: inline-flex;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.segmented button {
+  padding: 9px 16px;
+  border: none;
+  background: var(--card);
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.segmented button.on {
+  background: var(--brand);
+  color: #fff;
+}
+
+.badge-admin {
+  background: rgba(30, 127, 79, 0.12);
+  color: var(--success);
+}
+
+/* --- one-time credential handover -------------------------------- */
+.handover {
+  border: 1.5px solid var(--success);
+}
+
+.handover-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.handover-head strong {
+  flex: 1;
+  font-size: 15px;
+}
+
+.handover-creds {
+  display: flex;
+  gap: 28px;
+  flex-wrap: wrap;
+  font-size: 15px;
+}
+
+.handover-creds .muted {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.handover-creds code {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.login-wrap {
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+}
+
+.login-box {
+  width: 380px;
+  max-width: 92vw;
+}
+
+.login-head {
+  background: var(--brand);
+  color: #fff;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  padding: 28px 24px;
+  text-align: center;
+}
+
+.login-head .logo {
+  font-size: 34px;
+  font-weight: 700;
+}
+
+.login-body {
+  background: var(--card);
+  border: 1.5px solid var(--border);
+  border-top: none;
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+  padding: 24px;
+}
+
+/* ---- drill-down lists ------------------------------------------------
+   Centres and progress both work the same way: a table of things you
+   open. The whole row is the target so it is not a hunt for the link,
+   but the name stays a real button for keyboard and screen readers. */
+
+.row-link {
+  cursor: pointer;
+}
+
+.row-link:hover {
+  background: var(--brand-soft);
+}
+
+.link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--brand);
+  font-weight: 600;
+  text-align: left;
+}
+
+.link:hover {
+  text-decoration: underline;
+}
+
+.search {
+  margin-bottom: 14px;
+}
+
+.badge-warn {
+  background: rgba(192, 57, 43, 0.1);
+  color: var(--error);
+}

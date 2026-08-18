@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 9+ blocks cleartext HTTP by default, which would make every
+  request to the local dev API fail.
+
+  This allows it ONLY for localhost and private LAN addresses, so the
+  development setup works while the app still refuses cleartext to the
+  public internet. With `adb reverse tcp:8080 tcp:8080` the phone reaches
+  the PC through 127.0.0.1, which is covered by the first entry.
+
+  BEFORE RELEASE: the production API must be HTTPS, and this whole file
+  should be deleted so cleartext is refused everywhere.
+-->
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">127.0.0.1</domain>
+        <domain includeSubdomains="true">localhost</domain>
+        <domain includeSubdomains="true">10.0.2.2</domain>
+        <domain includeSubdomains="true">192.168.100.232</domain>
+    </domain-config>
+</network-security-config>

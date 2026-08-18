@@ -1,0 +1,8 @@
+# Scripts run on a Linux server — force LF regardless of Windows autocrlf,
+# so a shebang line never gets a trailing \r ("bad interpreter" at runtime).
+*.sh text eol=lf
+*.sql text eol=lf
+*.php text eol=lf
+
+# Everything else can stay whatever the checking-out platform prefers.
+* text=auto

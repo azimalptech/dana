@@ -1,0 +1,39 @@
+# Secrets — APP_CRED_KEY lives here and must never be committed (FR-1.10)
+.env
+api/.env
+
+# Machine-local dev overrides (e.g. API_ORIGIN when 8080 is taken)
+*.env.local
+panel/.env.local
+
+# Dependencies
+api/vendor/
+api/composer.phar
+panel/node_modules/
+app/.dart_tool/
+app/build/
+
+# Uploaded books and extracted text — large, and licensed content (Q-16)
+storage/
+
+# Build output
+panel/dist/
+app/android/app/debug/
+app/ios/Pods/
+
+# Editor / OS
+.idea/
+.vscode/
+*.iml
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# Claude Code session state — machine/session-specific, not team config
+.claude/settings.local.json
+.claude/scheduled_tasks.lock
+
+# Flutter/Android build output referenced elsewhere as app/build/, kept
+# here too since a debug APK build can also land under android/app/build
+app/android/.gradle/
+app/android/app/build/

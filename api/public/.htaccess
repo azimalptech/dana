@@ -1,0 +1,8 @@
+# Routes every request through the Slim front controller. The PHP dev
+# server does this implicitly; production Apache needs it stated.
+RewriteEngine On
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteRule ^ index.php [QSA,L]
+
+# The API serves JSON only — nothing here should ever be listed.
+Options -Indexes

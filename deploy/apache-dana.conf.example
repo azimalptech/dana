@@ -1,0 +1,62 @@
+# Dana — Apache vhost. Copy to /etc/apache2/sites-available/dana.conf,
+# fill in the two placeholders, then:
+#   a2ensite dana && a2enmod rewrite proxy_fcgi setenvif && systemctl reload apache2
+#
+# One origin serves both halves of the product (matches panel/vite.config.ts's
+# dev proxy and the mobile app's --dart-define=API_BASE, both of which expect
+# a single host with /api/v1 as a path, not a separate api. subdomain):
+#   https://YOUR_DOMAIN/          -> the built admin panel (static files)
+#   https://YOUR_DOMAIN/api/v1/*  -> the PHP API (Slim's own route group,
+#                                    already registered as "/api/v1" — do
+#                                    not add another prefix here)
+#
+# Because everything is same-origin, the panel's browser fetches never hit
+# CORS — the API defines no CORS headers at all, so a split-subdomain
+# layout would need backend changes this guide deliberately avoids.
+
+<VirtualHost *:80>
+    ServerName YOUR_DOMAIN
+    Redirect permanent / https://YOUR_DOMAIN/
+</VirtualHost>
+
+<VirtualHost *:443>
+    ServerName YOUR_DOMAIN
+
+    # certbot --apache fills these in on first run; left here so the
+    # syntax is valid even before that.
+    SSLEngine on
+    SSLCertificateFile    /etc/letsencrypt/live/YOUR_DOMAIN/fullchain.pem
+    SSLCertificateKeyFile /etc/letsencrypt/live/YOUR_DOMAIN/privkey.pem
+
+    # The panel's build output. base: './' in vite.config.ts means its
+    # assets are relative, so this can also be a subpath if you ever need
+    # one — no rebuild required, just move the alias.
+    DocumentRoot /var/www/dana/panel/dist
+
+    <Directory /var/www/dana/panel/dist>
+        Require all granted
+        # No client-side router (checked: no react-router in the panel),
+        # so no SPA catch-all rewrite is needed here.
+    </Directory>
+
+    # The API lives outside the panel's docroot and outside the web root
+    # in general terms (STORAGE_PATH is a sibling of api/, never under
+    # api/public — see api/.env). Alias exposes only api/public.
+    Alias /api /var/www/dana/api/public
+
+    <Directory /var/www/dana/api/public>
+        Require all granted
+        AllowOverride All
+        Options -Indexes
+
+        # api/public/.htaccess handles the front-controller rewrite
+        # (everything -> index.php) once AllowOverride is enabled above.
+        # If php-fpm is in use instead of mod_php, uncomment:
+        # <FilesMatch \.php$>
+        #     SetHandler "proxy:unix:/run/php/php8.2-fpm.sock|fcgi://localhost"
+        # </FilesMatch>
+    </Directory>
+
+    ErrorLog  ${APACHE_LOG_DIR}/dana-error.log
+    CustomLog ${APACHE_LOG_DIR}/dana-access.log combined
+</VirtualHost>
