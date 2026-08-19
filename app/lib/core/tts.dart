@@ -1,3 +1,5 @@
+import 'dart:io' show Platform;
+
 import 'package:flutter_tts/flutter_tts.dart';
 
 /// Pronunciation through the device's own text-to-speech service
@@ -23,6 +25,25 @@ class Speech {
     try {
       if (await _tts.isLanguageAvailable('en-US') == true) {
         await _tts.setLanguage('en-US');
+      }
+
+      // iOS only: without an explicit category the synthesiser inherits
+      // `ambient`, which the hardware Ring/Silent switch mutes — so a
+      // student with the switch flipped taps the speaker and hears
+      // nothing, with no error to explain it. `playback` is the category
+      // for audio that IS the point of the interaction. mixWithOthers and
+      // duckOthers keep it polite: music keeps playing, quietened, rather
+      // than being stopped outright. Android has no equivalent switch and
+      // needs none of this.
+      if (Platform.isIOS) {
+        await _tts.setSharedInstance(true);
+        await _tts.setIosAudioCategory(
+          IosTextToSpeechAudioCategory.playback,
+          [
+            IosTextToSpeechAudioCategoryOptions.mixWithOthers,
+            IosTextToSpeechAudioCategoryOptions.duckOthers,
+          ],
+        );
       }
     } catch (_) {
       // Engine not ready or missing — speak() will still try, and the

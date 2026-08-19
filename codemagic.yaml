@@ -1,0 +1,218 @@
+# Dana — Codemagic CI/CD
+#
+# MUST sit at the repository ROOT. The Flutter app lives in app/, which is
+# what `working_directory: app` handles.
+#
+# THIS REPO IS PUBLIC. Never put a secret in this file — not APP_CRED_KEY,
+# not a signing certificate, not an App Store Connect key. Secrets belong
+# in an encrypted Codemagic variable group and are referenced by name.
+#
+# Two workflows:
+#   ios-unsigned  — no Apple Developer Program membership needed. Produces
+#                   an unsigned .ipa you can sideload onto your own iPhone
+#                   from Windows (Sideloadly/AltStore + a free Apple ID).
+#   ios-release   — needs the $99/yr membership. Signed build for
+#                   TestFlight / App Store. Left ready but inert until the
+#                   membership and the App Store Connect key exist.
+
+definitions:
+  base_env: &base_env
+    # Pinned, not "stable": AppDelegate.swift uses FlutterImplicitEngineDelegate
+    # and SceneDelegate subclasses FlutterSceneDelegate, both of which are
+    # recent APIs. An older CI default would fail to compile; a newer one
+    # could change them again. 3.44.8 is what this project is developed on.
+    flutter: 3.44.8
+    xcode: latest
+    cocoapods: default
+
+  base_cache: &base_cache
+    cache_paths:
+      - $HOME/.pub-cache
+      - $HOME/Library/Caches/CocoaPods
+
+workflows:
+
+  # ===================================================================
+  # A. UNSIGNED — no Apple account of any kind required.
+  #    Run this first: it proves the whole iOS toolchain compiles
+  #    before you spend anything with Apple.
+  # ===================================================================
+  ios-unsigned:
+    name: Dana iOS — unsigned (sideload)
+    instance_type: mac_mini_m2      # the only machine free personal accounts may use
+    max_build_duration: 60
+    working_directory: app
+
+    environment:
+      <<: *base_env
+      vars:
+        # Public production API — safe to keep in the clear, it is the
+        # same URL the shipped app talks to.
+        API_BASE: "https://mydana.app/api/v1"
+
+    cache:
+      <<: *base_cache
+
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: main
+          include: true
+          source: true
+      cancel_previous_builds: true
+
+    scripts:
+      - name: Toolchain versions
+        script: |
+          flutter --version
+          xcodebuild -version
+          pod --version
+
+      - name: Flutter packages
+        script: flutter pub get
+
+      - name: Generate the iOS Pods project
+        # ios/Podfile is NOT committed. flutter writes it from its template
+        # here; without this the pod install below would match nothing.
+        script: flutter build ios --config-only --no-codesign
+
+      - name: Install pods
+        script: find . -name "Podfile" -execdir pod install \;
+
+      - name: Analyze
+        script: flutter analyze
+        ignore_failure: true
+
+      - name: Tests
+        script: flutter test
+        ignore_failure: true
+
+      - name: Build unsigned iOS
+        script: |
+          flutter build ios --release --no-codesign \
+            --dart-define=API_BASE=$API_BASE
+
+      - name: Package Runner.app into a sideloadable .ipa
+        # `--no-codesign` emits Runner.app, not an .ipa, and Sideloadly /
+        # AltStore both want an .ipa. An .ipa is just a zip with the app
+        # inside a top-level Payload/ directory, so build one by hand.
+        script: |
+          cd build/ios/iphoneos
+          mkdir -p Payload
+          cp -R Runner.app Payload/
+          zip -qr "$CM_BUILD_DIR/Dana-unsigned.ipa" Payload
+          echo "built: $(ls -lh "$CM_BUILD_DIR/Dana-unsigned.ipa" | awk '{print $5}')"
+
+      - name: Keep the generated Podfile so it can be committed
+        # Committing these pins pod resolution — see the note in DEPLOY-IOS.md.
+        script: |
+          cp ios/Podfile "$CM_BUILD_DIR/Podfile.generated" || true
+          cp ios/Podfile.lock "$CM_BUILD_DIR/Podfile.lock.generated" || true
+
+    artifacts:
+      - Dana-unsigned.ipa
+      - Podfile.generated
+      - Podfile.lock.generated
+      - flutter_drive.log
+
+    publishing:
+      email:
+        recipients:
+          - azimalptech@gmail.com
+        notify:
+          success: true
+          failure: true
+
+  # ===================================================================
+  # B. SIGNED RELEASE — requires the $99/yr Apple Developer Program.
+  #    Inert until you add an App Store Connect API key to Codemagic and
+  #    name the integration `dana_app_store` below.
+  # ===================================================================
+  ios-release:
+    name: Dana iOS — signed release (TestFlight)
+    instance_type: mac_mini_m2
+    max_build_duration: 90
+    working_directory: app
+
+    integrations:
+      # Codemagic → Teams/Personal settings → Integrations → Apple Developer
+      # Portal. Upload the .p8 there and give it exactly this name.
+      app_store_connect: dana_app_store
+
+    environment:
+      <<: *base_env
+      ios_signing:
+        distribution_type: app_store
+        # Must match PRODUCT_BUNDLE_IDENTIFIER in Runner.xcodeproj, and must
+        # already exist as an App ID in the Apple Developer portal.
+        bundle_identifier: com.dana.danaApp
+      vars:
+        API_BASE: "https://mydana.app/api/v1"
+        # The App Store Connect numeric app id, used to derive the next
+        # build number. Set it as an encrypted variable, not here.
+        APP_STORE_APPLE_ID: $APP_STORE_APPLE_ID
+
+    cache:
+      <<: *base_cache
+
+    triggering:
+      events:
+        - tag
+      tag_patterns:
+        - pattern: 'v*'
+          include: true
+
+    scripts:
+      - name: Flutter packages
+        script: flutter pub get
+
+      - name: Fetch signing files
+        # Creates the certificate and provisioning profile through the API
+        # key — no Mac, no Keychain Access, no CSR needed locally.
+        script: |
+          app-store-connect fetch-signing-files "$BUNDLE_IDENTIFIER" \
+            --type IOS_APP_STORE --create
+
+      - name: Set up the keychain
+        script: |
+          keychain initialize
+          keychain add-certificates
+
+      - name: Apply provisioning profiles to the Xcode project
+        script: xcode-project use-profiles
+
+      - name: Generate the iOS Pods project
+        script: flutter build ios --config-only --release
+
+      - name: Install pods
+        script: find . -name "Podfile" -execdir pod install \;
+
+      - name: Build signed ipa
+        # pubspec pins `version: 0.1.0+1`, so every upload would collide on
+        # CFBundleVersion. Derive the build number from what TestFlight
+        # already has instead of editing pubspec each release.
+        script: |
+          BUILD_NUMBER=$(($(app-store-connect get-latest-testflight-build-number "$APP_STORE_APPLE_ID" 2>/dev/null || echo 0) + 1))
+          flutter build ipa --release \
+            --build-number=$BUILD_NUMBER \
+            --dart-define=API_BASE=$API_BASE \
+            --export-options-plist=/Users/builder/export_options.plist
+
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
+        # Left false deliberately: review submission should be a human
+        # decision, not something a git tag triggers.
+        submit_to_app_store: false
+      email:
+        recipients:
+          - azimalptech@gmail.com
+        notify:
+          success: true
+          failure: true

@@ -53,18 +53,21 @@
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>
 	<string>Main</string>
+	<!-- Portrait only, matching main.dart's SystemChrome lock and the
+	     Android manifest's android:screenOrientation="portrait". The
+	     ~ipad array is gone along with it: the target is iPhone-only
+	     (TARGETED_DEVICE_FAMILY = "1"), and on iPad the runtime lock does
+	     not hold anyway, so declaring landscape there promised a layout
+	     this phone-shaped design does not have. -->
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
-		<string>UIInterfaceOrientationLandscapeLeft</string>
-		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
-	<key>UISupportedInterfaceOrientations~ipad</key>
-	<array>
-		<string>UIInterfaceOrientationPortrait</string>
-		<string>UIInterfaceOrientationPortraitUpsideDown</string>
-		<string>UIInterfaceOrientationLandscapeLeft</string>
-		<string>UIInterfaceOrientationLandscapeRight</string>
-	</array>
+	<!-- Export compliance. The app ships no cryptography of its own; it
+	     only talks HTTPS, which is an exempt use. Without this key every
+	     upload sits in App Store Connect as "Missing Compliance" until
+	     someone answers the question by hand before testers can install. -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 </dict>
 </plist>
