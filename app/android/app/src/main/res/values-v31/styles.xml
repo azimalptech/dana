@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 12+ replaced the launch window with the SplashScreen API: the
+     system draws the launcher icon on windowSplashScreenBackground and
+     ignores windowBackground for that moment. Left at its default the
+     icon sat on the platform background, which is what put the maroon
+     squircle on a black field.
+
+     Painting BOTH the screen and the icon's own backplate brand maroon
+     makes the icon's maroon square blend into the screen, so what shows
+     is the mydana wordmark centred on maroon — the Figma `splash-screen`
+     frame — and Flutter's SplashScreen then takes over on the same
+     colour with no visible seam. -->
+<resources>
+    <style name="LaunchTheme" parent="@android:style/Theme.Light.NoTitleBar">
+        <item name="android:windowBackground">@drawable/launch_background</item>
+        <item name="android:windowSplashScreenBackground">@color/dana_brand</item>
+        <item name="android:windowSplashScreenIconBackgroundColor">@color/dana_brand</item>
+    </style>
+    <style name="NormalTheme" parent="@android:style/Theme.Light.NoTitleBar">
+        <item name="android:windowBackground">@color/dana_brand</item>
+    </style>
+</resources>

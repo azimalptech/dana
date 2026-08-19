@@ -13,6 +13,9 @@
 
          This Theme is only used starting with V2 of Flutter's Android embedding. -->
     <style name="NormalTheme" parent="@android:style/Theme.Light.NoTitleBar">
-        <item name="android:windowBackground">?android:colorBackground</item>
+        <!-- Brand maroon, not ?android:colorBackground: this window shows
+             in the gap between the splash handing over and Flutter's first
+             frame, and the app opens on a maroon screen either way. -->
+        <item name="android:windowBackground">@color/dana_brand</item>
     </style>
 </resources>

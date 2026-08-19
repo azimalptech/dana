@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Dark mode on Android 12+.
+     This file is NOT redundant with values-v31: Android ranks the
+     night-mode qualifier ABOVE the platform-version one, so on a
+     dark-mode phone running Android 12+ the plain values-night folder
+     would win over values-v31 and the splash attributes below would
+     never be applied — which is exactly the device this was reported on.
+     Same maroon as the light variant; the app has no dark theme. -->
+<resources>
+    <style name="LaunchTheme" parent="@android:style/Theme.Black.NoTitleBar">
+        <item name="android:windowBackground">@drawable/launch_background</item>
+        <item name="android:windowSplashScreenBackground">@color/dana_brand</item>
+        <item name="android:windowSplashScreenIconBackgroundColor">@color/dana_brand</item>
+    </style>
+    <style name="NormalTheme" parent="@android:style/Theme.Black.NoTitleBar">
+        <item name="android:windowBackground">@color/dana_brand</item>
+    </style>
+</resources>

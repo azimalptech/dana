@@ -1,4 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- Adaptive launcher icon background (flutter_launcher_icons). -->
     <color name="ic_launcher_background">#7C0C3E</color>
+
+    <!-- DanaColors.brand. The native splash paints this so the window is
+         already brand-coloured before Flutter draws its first frame —
+         otherwise the launch window shows the platform background (white
+         in light mode, black in dark) and the app visibly jumps to maroon
+         when SplashScreen finally renders. -->
+    <color name="dana_brand">#7C0C3E</color>
 </resources>
