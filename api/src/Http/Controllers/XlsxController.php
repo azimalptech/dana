@@ -83,9 +83,9 @@ final class XlsxController extends Controller
 
         $units = Capsule::table('units as u')
             ->leftJoin('unit_sections as cu', 'cu.unit_id', '=', 'u.id')
-            ->groupBy('u.id', 'u.level_id', 'u.number', 'u.title', 'u.sort_order')
+            ->groupBy('u.id', 'u.level_id', 'u.number', 'u.name', 'u.title', 'u.sort_order')
             ->orderBy('u.sort_order')->orderBy('u.number')
-            ->get(['u.id', 'u.level_id', 'u.number', 'u.title', Capsule::raw('COUNT(cu.id) as child_units')]);
+            ->get(['u.id', 'u.level_id', 'u.number', 'u.name', 'u.title', Capsule::raw('COUNT(cu.id) as child_units')]);
 
         $levels = Capsule::table('levels')
             ->orderBy('sort_order')->orderBy('id')
@@ -99,6 +99,10 @@ final class XlsxController extends Controller
                     ->map(static fn ($unit): array => [
                         'id'          => (int) $unit->id,
                         'number'      => (int) $unit->number,
+                        // Manual naming (FR-15.7): the export picker must
+                        // identify named units the way the rest of the
+                        // panel does, not by a number nobody chose.
+                        'name'        => $unit->name,
                         'title'       => $unit->title,
                         'child_units' => (int) $unit->child_units,
                     ])

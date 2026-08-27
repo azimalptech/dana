@@ -172,6 +172,24 @@ function ClassroomRowView({ row, onChanged }: { row: ClassroomRow; onChanged: ()
     }
   }
 
+  // The server refuses while students are still enrolled — that message
+  // is shown as-is; удалите или переведите учеников сначала.
+  async function removeClassroom() {
+    if (!confirm(`Удалить класс «${row.name}»? Это действие необратимо.`)) return;
+
+    setBusy(true);
+    setError(null);
+
+    try {
+      await api.del(`/manage/classrooms/${row.id}`);
+      onChanged();
+    } catch (e: unknown) {
+      setError(e instanceof ApiError ? e.message : 'Не удалось удалить класс.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div
       style={{
@@ -213,11 +231,25 @@ function ClassroomRowView({ row, onChanged }: { row: ClassroomRow; onChanged: ()
             Завершить курс
           </button>
         )}
+
+        <button
+          className="btn btn-danger btn-sm"
+          disabled={busy}
+          onClick={() => void removeClassroom()}
+        >
+          Удалить класс
+        </button>
       </div>
+
+      {error && !confirming && (
+        <div className="alert alert-error" style={{ marginTop: 12 }}>
+          {error}
+        </div>
+      )}
 
       {adding && <StudentForm classroomId={row.id} onCreated={onChanged} />}
 
-      {showStudents && <StudentsPanel classroomId={row.id} />}
+      {showStudents && <StudentsPanel classroomId={row.id} onChanged={onChanged} />}
 
       {confirming && (
         <div className="alert alert-warn" style={{ marginTop: 12 }}>
@@ -259,7 +291,14 @@ interface StudentRow {
  * teacher's reveal is gone. Show the current password (audited and
  * rate-limited server-side) or set a new one, per student.
  */
-function StudentsPanel({ classroomId }: { classroomId: number }) {
+function StudentsPanel({
+  classroomId,
+  onChanged,
+}: {
+  classroomId: number;
+  /** Refreshes the classroom list (student counts) after a delete. */
+  onChanged?: () => void;
+}) {
   const students = useAsync(
     () => api.get<{ students: StudentRow[] }>(`/manage/classrooms/${classroomId}/students`),
     [classroomId],
@@ -304,6 +343,29 @@ function StudentsPanel({ classroomId }: { classroomId: number }) {
       students.reload();
     } catch (e: unknown) {
       setError(e instanceof ApiError ? e.message : 'Не удалось сбросить пароль.');
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function removeStudent(student: StudentRow) {
+    if (
+      !confirm(
+        `Удалить ученика «${student.full_name}»? Аккаунт и весь его прогресс будут удалены безвозвратно.`,
+      )
+    ) {
+      return;
+    }
+
+    setBusyId(student.id);
+    setError(null);
+
+    try {
+      await api.del(`/manage/students/${student.id}`);
+      students.reload();
+      onChanged?.();
+    } catch (e: unknown) {
+      setError(e instanceof ApiError ? e.message : 'Не удалось удалить ученика.');
     } finally {
       setBusyId(null);
     }
@@ -363,6 +425,13 @@ function StudentsPanel({ classroomId }: { classroomId: number }) {
                     onClick={() => void reset(s)}
                   >
                     Сбросить пароль
+                  </button>{' '}
+                  <button
+                    className="btn btn-danger btn-sm"
+                    disabled={busyId === s.id}
+                    onClick={() => void removeStudent(s)}
+                  >
+                    Удалить
                   </button>
                 </td>
               </tr>

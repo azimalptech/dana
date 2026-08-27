@@ -8,6 +8,7 @@ use Dana\Domain\Content\QuestionPayload;
 use Dana\Domain\Models\ExerciseSet;
 use Dana\Domain\Models\Section;
 use Dana\Domain\Models\User;
+use Dana\Domain\Progress\QuizDrawService;
 use Dana\Http\ApiException;
 use Illuminate\Database\Capsule\Manager as Capsule;
 use Psr\Http\Message\ResponseInterface;
@@ -39,6 +40,10 @@ use Psr\Http\Message\ServerRequestInterface;
  */
 final class ContentAdminController extends Controller
 {
+    public function __construct(private readonly QuizDrawService $quizDraws)
+    {
+    }
+
     // ----------------------------------------------- child unit -> sections
 
     /**
@@ -58,7 +63,7 @@ final class ContentAdminController extends Controller
             ->join('units as u', 'u.id', '=', 'cu.unit_id')
             ->join('levels as l', 'l.id', '=', 'u.level_id')
             ->where('cu.id', $childUnitId)
-            ->select(['cu.id', 'cu.code', 'cu.title', 'u.number as unit_number', 'l.name as level'])
+            ->select(['cu.id', 'cu.code', 'cu.label as cu_label', 'cu.title', 'u.number as unit_number', 'l.name as level'])
             ->first();
 
         if ($childUnit === null) {
@@ -106,7 +111,8 @@ final class ContentAdminController extends Controller
         return $this->json($response, [
             'child_unit' => [
                 'id'    => (int) $childUnit->id,
-                'label' => $childUnit->unit_number . $childUnit->code,
+                // Explicit label wins verbatim (manual naming, 2026-08-20).
+                'label' => $childUnit->cu_label ?? ($childUnit->unit_number . $childUnit->code),
                 'title' => $childUnit->title,
                 'level' => $childUnit->level,
             ],
@@ -150,6 +156,14 @@ final class ContentAdminController extends Controller
 
                 if ($section->type === Section::TYPE_QUIZ) {
                     $row['quiz_preview'] = $this->quizPreview($childUnitId);
+
+                    // The «Состав квиза» editor was blind without these:
+                    // the targets live on unit_sections and the panel got
+                    // nothing back, so it rendered 0/0/0 over a live
+                    // 7/8/5 draw and «Сохранить цели» read as a no-op.
+                    $row['quiz_targets'] = $this->quizDraws->targets($childUnitId);
+                    $row['quiz_pools'] = $this->quizPools($childUnitId);
+                    $row['quiz_draw'] = $this->quizDrawCodes($childUnitId);
                 } else {
                     $row['sets'] = collect($sets[$id] ?? [])->map(fn ($set): array => [
                         'id'              => (int) $set->id,
@@ -266,6 +280,37 @@ final class ContentAdminController extends Controller
         }
 
         Capsule::table('sections')->where('id', $section->id)->update($fields);
+
+        // Quiz composition targets (FR-14.3). They live on the PARENT
+        // unit_sections row, not on the section — updateSection silently
+        // dropped them before, which made the panel's «Сохранить цели»
+        // button a no-op. 0 in the panel means "no target": stored as
+        // NULL so an all-zeros save keeps the legacy all-eligible mode
+        // (hasTargets()) instead of creating an empty fixed draw.
+        if ($section->type === Section::TYPE_QUIZ) {
+            $targets = [];
+
+            foreach (QuizDrawService::SKILLS as $skill) {
+                $key = 'quiz_target_' . $skill;
+
+                if (array_key_exists($key, $body)) {
+                    $value = max(0, (int) $body[$key]);
+                    $targets[$key] = $value === 0 ? null : $value;
+                }
+            }
+
+            if ($targets !== []) {
+                Capsule::table('unit_sections')
+                    ->where('id', $section->unit_section_id)
+                    ->update($targets);
+
+                // Trim/backfill the stored draw to the new sizes now,
+                // rather than surprising the next student who opens the
+                // quiz. ensure() keeps still-valid picks (FR-14.3
+                // self-heal), so unchanged skills keep their questions.
+                $this->quizDraws->ensure((int) $section->unit_section_id);
+            }
+        }
 
         return $this->json($response, ['id' => (int) $section->id]);
     }
@@ -663,6 +708,46 @@ final class ContentAdminController extends Controller
      *
      * @return list<array<string, mixed>>
      */
+    /**
+     * Servable-eligible pool sizes per skill — the «в наличии: N» hints
+     * beside the target inputs. Delegates to the SAME pool the draw uses
+     * (published section + published set + active + eligible + media
+     * uploaded), so the hint can never promise questions the draw would
+     * then refuse.
+     *
+     * @return array{vocabulary: int, grammar: int, listening: int}
+     */
+    private function quizPools(int $childUnitId): array
+    {
+        $out = [];
+
+        foreach (QuizDrawService::SKILLS as $skill) {
+            $out[$skill] = count($this->quizDraws->pool($childUnitId, $skill));
+        }
+
+        return $out;
+    }
+
+    /**
+     * The stored fixed draw (FR-14.3) as display codes for the
+     * «Текущий набор» badges — external codes where the xlsx import set
+     * them, '#id' for hand-authored questions.
+     *
+     * @return list<string>
+     */
+    private function quizDrawCodes(int $childUnitId): array
+    {
+        return Capsule::table('quiz_draws as qd')
+            ->join('questions as q', 'q.id', '=', 'qd.question_id')
+            ->where('qd.unit_section_id', $childUnitId)
+            ->orderBy('qd.sort_order')->orderBy('qd.question_id')
+            ->get(['q.id', 'q.external_code'])
+            ->map(static fn ($r): string => (string) ($r->external_code ?? '') !== ''
+                ? (string) $r->external_code
+                : ('#' . $r->id))
+            ->all();
+    }
+
     private function quizPreview(int $childUnitId): array
     {
         return Capsule::table('questions as q')

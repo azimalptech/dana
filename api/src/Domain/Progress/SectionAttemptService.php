@@ -64,7 +64,9 @@ final class SectionAttemptService
                 'title_tk'       => $section->title_tk,
                 'title_ru'       => $section->title_ru,
                 'title_en'       => null,
-                'label'          => $section->unit_number . '-' . $section->unit_code,
+                // Manual naming (2026-08-20): an explicit child-unit
+                // label wins verbatim over the legacy composition.
+                'label'          => $section->unit_label ?? ($section->unit_number . '-' . $section->unit_code),
                 'question_count' => count($questions),
                 'attempts'       => $attempts,
                 'average'        => $attempts === 0

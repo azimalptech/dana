@@ -23,6 +23,8 @@ interface ChildUnit {
   level: string;
   unit_id: number;
   unit_number: number;
+  /** Manual naming (FR-15.7): the unit's own name, null on legacy rows. */
+  unit_name: string | null;
   label: string;
   title: string | null;
   sections: SectionRow[];
@@ -31,6 +33,7 @@ interface ChildUnit {
 interface Unit {
   id: number;
   number: number;
+  name: string | null;
   level: string;
   childUnits: ChildUnit[];
   sections: number;
@@ -68,6 +71,7 @@ export default function Content() {
       const unit = map.get(child.unit_id) ?? {
         id: child.unit_id,
         number: child.unit_number,
+        name: child.unit_name,
         level: child.level,
         childUnits: [],
         sections: 0,
@@ -126,7 +130,7 @@ export default function Content() {
           ← {unit.level}
         </button>
 
-        <h1 style={{ marginTop: 12 }}>Юнит {unit.number}</h1>
+        <h1 style={{ marginTop: 12 }}>{unit.name || `Юнит ${unit.number}`}</h1>
         <p className="sub">
           {unit.childUnits.length} подюнитов · {unit.sections} разделов · {unit.words} слов ·{' '}
           {unit.questions} вопросов
@@ -249,7 +253,7 @@ export default function Content() {
                 <tr key={row.id} className="row-link" onClick={() => setOpenUnit(row.id)}>
                   <td>
                     <button className="link" onClick={() => setOpenUnit(row.id)}>
-                      Юнит {row.number}
+                      {row.name || `Юнит ${row.number}`}
                     </button>
                   </td>
                   <td>{row.childUnits.length}</td>

@@ -6,6 +6,7 @@ import { useAsync } from '../hooks';
 interface SectionRow {
   id: number;
   code: string;
+  label: string | null;
   title: string | null;
   level_position: number;
 }
@@ -13,6 +14,7 @@ interface SectionRow {
 interface UnitRow {
   id: number;
   number: number;
+  name: string | null;
   title: string | null;
   sections: SectionRow[];
 }
@@ -22,6 +24,16 @@ interface LevelRow {
   name: string;
   is_active: boolean;
   units: UnitRow[];
+}
+
+/** Display identity: the manual name verbatim, else the legacy number. */
+function unitName(unit: UnitRow): string {
+  return unit.name || `Юнит ${unit.number}`;
+}
+
+/** Child unit identity: the manual label verbatim, else {number}{code}. */
+function sectionName(unitNumber: number, section: SectionRow): string {
+  return section.label || `${unitNumber}${section.code}`;
 }
 
 /**
@@ -53,6 +65,37 @@ export default function Curriculum() {
     }
   }
 
+  /**
+   * Deletes with the attempts_exist handshake (same pattern as the
+   * SectionEditor): the server refuses to cascade student attempts
+   * without force=1, so the loss is confirmed twice. A plain validation
+   * refusal (e.g. classrooms still use the level) is just shown.
+   */
+  async function remove(path: string, question: string, after?: () => void) {
+    if (!confirm(question)) return;
+
+    setError(null);
+    try {
+      await api.del(path);
+      after?.();
+      tree.reload();
+    } catch (e: unknown) {
+      if (e instanceof ApiError && e.code === 'attempts_exist') {
+        if (confirm(`${e.message}\n\nУдалить вместе с попытками учеников?`)) {
+          try {
+            await api.del(`${path}?force=1`);
+            after?.();
+            tree.reload();
+          } catch (e2: unknown) {
+            setError(e2 instanceof ApiError ? e2.message : 'Не удалось удалить.');
+          }
+        }
+      } else {
+        setError(e instanceof ApiError ? e.message : 'Не удалось удалить.');
+      }
+    }
+  }
+
   const levels = useMemo(() => tree.data?.levels ?? [], [tree.data]);
   const level = levels.find((l) => l.id === levelId) ?? levels[0] ?? null;
   const unit = level?.units.find((u) => u.id === openUnit) ?? null;
@@ -67,7 +110,7 @@ export default function Curriculum() {
         </button>
 
         <h1 style={{ marginTop: 12 }}>
-          Юнит {unit.number} {unit.title && <span className="muted">— {unit.title}</span>}
+          {unitName(unit)} {unit.title && <span className="muted">— {unit.title}</span>}
         </h1>
         <p className="sub">
           Подюниты (1-A, 1-B…). Их содержимое — слова, упражнения, квиз — редактируется на
@@ -83,7 +126,13 @@ export default function Curriculum() {
         )}
 
         {unit.sections.map((section) => (
-          <SectionCard key={section.id} unitNumber={unit.number} section={section} run={run} />
+          <SectionCard
+            key={section.id}
+            unitNumber={unit.number}
+            section={section}
+            run={run}
+            remove={remove}
+          />
         ))}
 
         <AddSection unitId={unit.id} run={run} />
@@ -126,12 +175,31 @@ export default function Curriculum() {
             ))}
           </div>
 
-          <button
-            className={addingLevel ? 'btn btn-ghost btn-sm' : 'btn btn-sm'}
-            onClick={() => setAddingLevel(!addingLevel)}
-          >
-            {addingLevel ? 'Отмена' : '+ Уровень'}
-          </button>
+          <span style={{ whiteSpace: 'nowrap' }}>
+            <button
+              className={addingLevel ? 'btn btn-ghost btn-sm' : 'btn btn-sm'}
+              onClick={() => setAddingLevel(!addingLevel)}
+            >
+              {addingLevel ? 'Отмена' : '+ Уровень'}
+            </button>{' '}
+            {level && (
+              <button
+                className="btn btn-danger btn-sm"
+                onClick={() =>
+                  void remove(
+                    `/manage/levels/${level.id}`,
+                    `Удалить уровень «${level.name}» со всеми юнитами и контентом?`,
+                    () => {
+                      setLevelId(null);
+                      setOpenUnit(null);
+                    },
+                  )
+                }
+              >
+                Удалить уровень
+              </button>
+            )}
+          </span>
         </div>
       )}
 
@@ -166,27 +234,29 @@ export default function Curriculum() {
         </div>
       )}
 
-      {level && <UnitsCard level={level} run={run} onOpen={setOpenUnit} />}
+      {level && <UnitsCard level={level} run={run} remove={remove} onOpen={setOpenUnit} />}
     </>
   );
 }
+
+type Remove = (path: string, question: string, after?: () => void) => Promise<void>;
 
 /* -------------------------------------------------------------- units */
 
 function UnitsCard({
   level,
   run,
+  remove,
   onOpen,
 }: {
   level: LevelRow;
   run: (a: () => Promise<unknown>) => Promise<void>;
+  remove: Remove;
   onOpen: (id: number) => void;
 }) {
   const [adding, setAdding] = useState(false);
-  const [number, setNumber] = useState('');
+  const [name, setName] = useState('');
   const [title, setTitle] = useState('');
-
-  const next = level.units.reduce((n, unit) => Math.max(n, unit.number), 0) + 1;
 
   return (
     <div className="card">
@@ -196,10 +266,7 @@ function UnitsCard({
         </h2>
         <button
           className={adding ? 'btn btn-ghost btn-sm' : 'btn btn-sm'}
-          onClick={() => {
-            setAdding(!adding);
-            setNumber(String(next));
-          }}
+          onClick={() => setAdding(!adding)}
         >
           {adding ? 'Отмена' : '+ Юнит'}
         </button>
@@ -208,29 +275,37 @@ function UnitsCard({
       {adding && (
         <div className="inset">
           <div className="row">
-            <div className="field" style={{ maxWidth: 120 }}>
-              <label htmlFor="u-number">Номер</label>
-              <input id="u-number" autoFocus value={number}
-                onChange={(e) => setNumber(e.target.value)} />
+            <div className="field" style={{ maxWidth: 220 }}>
+              <label htmlFor="u-name">Название юнита</label>
+              <input
+                id="u-name"
+                autoFocus
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Unit 1"
+              />
+              {/* Parent units are containers (FR-13.1): students see the
+                  child-unit labels, so this name lives in the panel only. */}
+              <p className="hint">Имя для панели. Ученики видят подюниты — их имя задаётся ниже.</p>
             </div>
             <div className="field">
-              <label htmlFor="u-title">Название (необязательно)</label>
+              <label htmlFor="u-title">Подзаголовок (необязательно)</label>
               <input id="u-title" value={title}
                 onChange={(e) => setTitle(e.target.value)} placeholder="A cappuccino, please" />
             </div>
             <div className="field" style={{ display: 'flex', alignItems: 'flex-end' }}>
               <button
                 className="btn btn-sm"
-                disabled={!Number.isInteger(Number(number)) || Number(number) <= 0}
+                disabled={name.trim() === ''}
                 onClick={async () => {
                   await run(() =>
                     api.post('/manage/units', {
                       level_id: level.id,
-                      number: Number(number),
+                      name: name.trim(),
                       title,
                     }),
                   );
-                  setNumber('');
+                  setName('');
                   setTitle('');
                   setAdding(false);
                 }}
@@ -249,14 +324,14 @@ function UnitsCard({
           <thead>
             <tr>
               <th>Юнит</th>
-              <th>Название</th>
+              <th>Подзаголовок</th>
               <th>Разделов</th>
               <th />
             </tr>
           </thead>
           <tbody>
             {level.units.map((unit) => (
-              <UnitRowView key={unit.id} unit={unit} run={run} onOpen={onOpen} />
+              <UnitRowView key={unit.id} unit={unit} run={run} remove={remove} onOpen={onOpen} />
             ))}
           </tbody>
         </table>
@@ -269,14 +344,16 @@ function UnitsCard({
 function UnitRowView({
   unit,
   run,
+  remove,
   onOpen,
 }: {
   unit: UnitRow;
   run: (a: () => Promise<unknown>) => Promise<void>;
+  remove: Remove;
   onOpen: (id: number) => void;
 }) {
   const [editing, setEditing] = useState(false);
-  const [number, setNumber] = useState(String(unit.number));
+  const [name, setName] = useState(unit.name ?? '');
   const [title, setTitle] = useState(unit.title ?? '');
 
   if (editing) {
@@ -284,9 +361,9 @@ function UnitRowView({
       <tr>
         <td>
           <input
-            style={{ maxWidth: 70 }}
-            value={number}
-            onChange={(e) => setNumber(e.target.value)}
+            value={name}
+            placeholder={`Юнит ${unit.number}`}
+            onChange={(e) => setName(e.target.value)}
           />
         </td>
         <td>
@@ -295,11 +372,11 @@ function UnitRowView({
         <td colSpan={2} style={{ whiteSpace: 'nowrap' }}>
           <button
             className="btn btn-sm"
-            disabled={Number(number) <= 0}
+            disabled={name.trim() === ''}
             onClick={async () => {
               await run(() =>
                 api.post(`/manage/units/${unit.id}`, {
-                  number: Number(number),
+                  name: name.trim(),
                   title,
                 }),
               );
@@ -320,7 +397,7 @@ function UnitRowView({
     <tr key={unit.id} className="row-link" onClick={() => onOpen(unit.id)}>
       <td>
         <button className="link" onClick={() => onOpen(unit.id)}>
-          Юнит {unit.number}
+          {unitName(unit)}
         </button>
       </td>
       <td className="muted">{unit.title ?? '—'}</td>
@@ -330,10 +407,24 @@ function UnitRowView({
           className="btn btn-ghost btn-sm"
           onClick={(e) => {
             e.stopPropagation();
+            setName(unit.name ?? '');
+            setTitle(unit.title ?? '');
             setEditing(true);
           }}
         >
           Изменить
+        </button>{' '}
+        <button
+          className="btn btn-danger btn-sm"
+          onClick={(e) => {
+            e.stopPropagation();
+            void remove(
+              `/manage/units/${unit.id}`,
+              `Удалить «${unitName(unit)}» со всеми подюнитами и контентом?`,
+            );
+          }}
+        >
+          Удалить
         </button>
       </td>
     </tr>
@@ -342,30 +433,46 @@ function UnitRowView({
 
 /* ----------------------------------------------------------- sections */
 
-/** Code and title of one child unit — nothing else lives here anymore. */
+/** Code, display name and title of one child unit. */
 function SectionCard({
   unitNumber,
   section,
   run,
+  remove,
 }: {
   unitNumber: number;
   section: SectionRow;
   run: (a: () => Promise<unknown>) => Promise<void>;
+  remove: Remove;
 }) {
   const [editing, setEditing] = useState(false);
   const [code, setCode] = useState(section.code);
+  const [label, setLabel] = useState(section.label ?? '');
   const [title, setTitle] = useState(section.title ?? '');
 
   return (
     <div className="card">
       <div className="card-head">
         <h2 style={{ margin: 0 }}>
-          {unitNumber}
-          {section.code} {section.title && <span className="muted">— {section.title}</span>}
+          {sectionName(unitNumber, section)}{' '}
+          {section.title && <span className="muted">— {section.title}</span>}
         </h2>
-        <button className="btn btn-ghost btn-sm" onClick={() => setEditing(!editing)}>
-          {editing ? 'Отмена' : 'Изменить'}
-        </button>
+        <span style={{ whiteSpace: 'nowrap' }}>
+          <button className="btn btn-ghost btn-sm" onClick={() => setEditing(!editing)}>
+            {editing ? 'Отмена' : 'Изменить'}
+          </button>{' '}
+          <button
+            className="btn btn-danger btn-sm"
+            onClick={() =>
+              void remove(
+                `/manage/sections/${section.id}`,
+                `Удалить подюнит «${sectionName(unitNumber, section)}» со всем содержимым?`,
+              )
+            }
+          >
+            Удалить подюнит
+          </button>
+        </span>
       </div>
 
       {editing && (
@@ -373,6 +480,14 @@ function SectionCard({
           <div className="field" style={{ maxWidth: 120 }}>
             <label>Код</label>
             <input value={code} onChange={(e) => setCode(e.target.value)} />
+          </div>
+          <div className="field" style={{ maxWidth: 200 }}>
+            <label>Отображаемое имя</label>
+            <input
+              value={label}
+              placeholder={`${unitNumber}${section.code}`}
+              onChange={(e) => setLabel(e.target.value)}
+            />
           </div>
           <div className="field">
             <label>Название</label>
@@ -384,7 +499,7 @@ function SectionCard({
               disabled={code.trim() === ''}
               onClick={async () => {
                 await run(() =>
-                  api.post(`/manage/sections/${section.id}`, { code, title }),
+                  api.post(`/manage/sections/${section.id}`, { code, label, title }),
                 );
                 setEditing(false);
               }}
@@ -407,6 +522,7 @@ function AddSection({
 }) {
   const [open, setOpen] = useState(false);
   const [code, setCode] = useState('');
+  const [label, setLabel] = useState('');
   const [title, setTitle] = useState('');
 
   if (!open) {
@@ -427,6 +543,11 @@ function AddSection({
           <input id="s-code" autoFocus value={code}
             onChange={(e) => setCode(e.target.value)} placeholder="A" />
         </div>
+        <div className="field" style={{ maxWidth: 220 }}>
+          <label htmlFor="s-label">Отображаемое имя (необязательно)</label>
+          <input id="s-label" value={label}
+            onChange={(e) => setLabel(e.target.value)} placeholder="1A" />
+        </div>
         <div className="field">
           <label htmlFor="s-title">Название</label>
           <input id="s-title" value={title} onChange={(e) => setTitle(e.target.value)} />
@@ -437,8 +558,9 @@ function AddSection({
         className="btn btn-sm"
         disabled={code.trim() === ''}
         onClick={async () => {
-          await run(() => api.post('/manage/sections', { unit_id: unitId, code, title }));
+          await run(() => api.post('/manage/sections', { unit_id: unitId, code, label, title }));
           setCode('');
+          setLabel('');
           setTitle('');
           setOpen(false);
         }}

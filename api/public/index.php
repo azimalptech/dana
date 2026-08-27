@@ -173,6 +173,12 @@ $app->group('/api/v1', function (RouteCollectorProxy $group) use ($auth): void {
         $secure->post('/manage/centers/{id}', [ManagementController::class, 'updateCenter']);
         $secure->delete('/manage/centers/{id}', [ManagementController::class, 'deleteCenter']);
         $secure->delete('/manage/admins/{id}', [ManagementController::class, 'deleteAdmin']);
+        // "I want to be able to delete everything" (client, 2026-08).
+        // Teachers deactivate like admins; students HARD-delete with all
+        // their progress; classrooms refuse while active students remain.
+        $secure->delete('/manage/teachers/{id}', [ManagementController::class, 'deleteTeacher']);
+        $secure->delete('/manage/students/{id}', [ManagementController::class, 'deleteStudent']);
+        $secure->delete('/manage/classrooms/{id}', [ManagementController::class, 'deleteClassroom']);
         $secure->get('/manage/staff', [ManagementController::class, 'staffList']);
         $secure->post('/manage/admins', [ManagementController::class, 'createAdmin']);
         $secure->post('/manage/teachers', [ManagementController::class, 'createTeacher']);
@@ -208,6 +214,13 @@ $app->group('/api/v1', function (RouteCollectorProxy $group) use ($auth): void {
         $secure->post('/manage/units/{id}', [CurriculumController::class, 'updateUnit']);
         $secure->post('/manage/sections', [CurriculumController::class, 'createSection']);
         $secure->post('/manage/sections/{id}', [CurriculumController::class, 'updateChildUnit']);
+        // Structure deletes, superadmin only. Attempted content answers
+        // 409 attempts_exist until repeated with ?force=1 — the same
+        // contract as DELETE /manage/typed-sections/{id}. A level with
+        // classrooms refuses outright: closing courses is FR-1.14's job.
+        $secure->delete('/manage/levels/{id}', [CurriculumController::class, 'deleteLevel']);
+        $secure->delete('/manage/units/{id}', [CurriculumController::class, 'deleteUnit']);
+        $secure->delete('/manage/sections/{id}', [CurriculumController::class, 'deleteChildUnit']);
 
         // Content is authored manually, 1:1 from the workbook (client
         // decision 2026-08-07). No generation routes exist.

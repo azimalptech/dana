@@ -499,6 +499,21 @@ function SectionCard({
     title_ru: section.title_ru ?? '',
   });
 
+  // Accordion state lives HERE, not in SetSection/VocabularyEditor:
+  // this card survives a data reload (stable key on section.id), so an
+  // open lesson stays open while the list refreshes underneath it.
+  const [openSets, setOpenSets] = useState<Set<number>>(new Set());
+  const [vocabOpen, setVocabOpen] = useState(false);
+
+  function toggleSet(id: number) {
+    setOpenSets((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
   const name = section.title_ru || SECTION_TYPE_LABEL[section.type] || section.type;
 
   // The server refuses to delete an attempted section without force=1 —
@@ -569,7 +584,13 @@ function SectionCard({
       )}
 
       {section.type === 'vocabulary' && (
-        <VocabularyEditor items={section.vocabulary ?? []} sectionId={section.id} run={run} />
+        <VocabularyEditor
+          items={section.vocabulary ?? []}
+          sectionId={section.id}
+          run={run}
+          open={vocabOpen}
+          onToggle={() => setVocabOpen((v) => !v)}
+        />
       )}
 
       {/* Грамматических объяснений больше нет (FR-13.26): раздел
@@ -583,7 +604,13 @@ function SectionCard({
       ) : (
         <>
           {(section.sets ?? []).map((set) => (
-            <SetSection key={set.id} set={set} run={run} />
+            <SetSection
+              key={set.id}
+              set={set}
+              run={run}
+              open={openSets.has(set.id)}
+              onToggle={() => toggleSet(set.id)}
+            />
           ))}
           <AddSet sectionId={section.id} run={run} />
         </>
@@ -700,21 +727,39 @@ function AddSection({
 
 /* ------------------------------------------------------------ vocabulary */
 
+/**
+ * Word list as a collapsed-by-default accordion (same reason as
+ * SetSection: 1A's endless page). Open flag lives in SectionCard.
+ */
 function VocabularyEditor({
   items,
   sectionId,
   run,
+  open,
+  onToggle,
 }: {
   items: Vocab[];
   sectionId: number;
   run: (a: () => Promise<unknown>) => Promise<void>;
+  open: boolean;
+  onToggle: () => void;
 }) {
   const [editing, setEditing] = useState<number | 'new' | null>(null);
 
   return (
     <div style={{ marginTop: 14 }}>
-      <h3 style={{ margin: '0 0 8px' }}>Слова ({items.length})</h3>
+      <div
+        style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}
+        onClick={onToggle}
+      >
+        <span className="muted" aria-hidden style={{ width: 14 }}>
+          {open ? '▾' : '▸'}
+        </span>
+        <h3 style={{ margin: 0, flex: 1 }}>Слова · {items.length}</h3>
+      </div>
 
+      {open && (
+        <>
       <table>
         <thead>
           <tr>
@@ -782,6 +827,8 @@ function VocabularyEditor({
         <button className="btn btn-ghost btn-sm" onClick={() => setEditing('new')}>
           + Добавить слово
         </button>
+      )}
+        </>
       )}
     </div>
   );
@@ -1015,38 +1062,59 @@ function QuizPreview({ items, attempts }: { items: QuizItem[]; attempts: number 
 
 /* --------------------------------------------------------- exercise sets */
 
+/**
+ * One exercise set as a collapsed-by-default accordion — «контент 1A —
+ * один бесконечный список» (client): the questions and editors render
+ * only when the lesson is opened. The open flag lives in the parent
+ * SectionCard so a data reload does not collapse an open set.
+ */
 function SetSection({
   set,
   run,
+  open,
+  onToggle,
 }: {
   set: SetRow;
   run: (a: () => Promise<unknown>) => Promise<void>;
+  open: boolean;
+  onToggle: () => void;
 }) {
   const [adding, setAdding] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
 
   return (
     <div className="inset" style={{ marginTop: 14 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+      <div
+        style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', cursor: 'pointer' }}
+        onClick={onToggle}
+      >
+        <span className="muted" aria-hidden style={{ width: 14 }}>
+          {open ? '▾' : '▸'}
+        </span>
         <h3 style={{ margin: 0, flex: 1 }}>
           {set.title_ru} <span className="badge">{SET_TYPE_LABEL[set.type] ?? set.type}</span>{' '}
-          <span className="badge">{set.status === 'published' ? 'опубликовано' : 'черновик'}</span>
+          <span className="badge">{set.status === 'published' ? 'опубликовано' : 'черновик'}</span>{' '}
+          <span className="muted" style={{ fontWeight: 400, fontSize: 13 }}>
+            · вопросов: {set.questions.length}
+          </span>
         </h3>
         <button
           className="btn btn-ghost btn-sm"
-          onClick={() =>
+          onClick={(e) => {
+            e.stopPropagation();
             void run(() =>
               api.post(`/manage/content/sets/${set.id}/status`, {
                 status: set.status === 'published' ? 'draft' : 'published',
               }),
-            )
-          }
+            );
+          }}
         >
           {set.status === 'published' ? 'Снять' : 'Опубликовать'}
         </button>
         <button
           className="btn btn-danger btn-sm"
-          onClick={() => {
+          onClick={(e) => {
+            e.stopPropagation();
             if (confirm(`Удалить упражнение «${set.title_ru}»?`)) {
               void run(() => api.del(`/manage/sets/${set.id}`));
             }
@@ -1056,6 +1124,8 @@ function SetSection({
         </button>
       </div>
 
+      {open && (
+        <>
       <p className="muted" style={{ fontSize: 13 }}>
         Вопросов: {set.questions.length} · В квизе:{' '}
         {set.questions.filter((q) => q.quiz_eligible).length}
@@ -1104,6 +1174,8 @@ function SetSection({
         <button className="btn btn-ghost btn-sm" onClick={() => setAdding(true)}>
           + Добавить вопрос
         </button>
+      )}
+        </>
       )}
     </div>
   );

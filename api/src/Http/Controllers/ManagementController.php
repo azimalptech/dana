@@ -222,6 +222,171 @@ final class ManagementController extends Controller
         return $this->json($response, ['ok' => true]);
     }
 
+    /**
+     * DELETE /manage/teachers/{id} — mirrors deleteAdmin: deactivated
+     * rather than erased (the audit trail and closed classrooms keep
+     * referencing the row), every session token revoked. Centre-scoped
+     * exactly like createTeacher: an admin removes their own centre's
+     * teachers only; the superadmin reaches anyone.
+     *
+     * classrooms.teacher_id is NOT NULL in the schema, so a classroom
+     * cannot be left teacherless — while ACTIVE classrooms reference the
+     * teacher the delete is refused, naming them. Closed classrooms keep
+     * pointing at the deactivated account, same as deleteCenter leaves
+     * its disabled staff.
+     */
+    public function deleteTeacher(
+        ServerRequestInterface $request,
+        ResponseInterface $response,
+        array $args,
+    ): ResponseInterface {
+        $scope = $this->scope($request);
+        $scope->requireRole(User::ROLE_ADMIN, User::ROLE_SUPERADMIN);
+
+        $teacher = $scope->applyToUsers(User::query())
+            ->where('users.id', (int) $args['id'])
+            ->where('role', User::ROLE_TEACHER)
+            ->first();
+
+        if ($teacher === null) {
+            throw ApiException::notFound();
+        }
+
+        $classrooms = Capsule::table('classrooms')
+            ->where('teacher_id', $teacher->id)
+            ->where('is_active', 1)
+            ->pluck('name')
+            ->all();
+
+        if ($classrooms !== []) {
+            $names = implode(', ', $classrooms);
+            throw ApiException::validation(
+                "Bu mugallym şu synplary alyp barýar: {$names}. Öňürti synplary başga mugallyma geçiriň ýa-da ýapyň.",
+                "Этот преподаватель ведёт классы: {$names}. Сначала передайте классы другому преподавателю или завершите их."
+            );
+        }
+
+        $teacher->is_active = false;
+        $teacher->save();
+
+        Capsule::table('refresh_tokens')
+            ->where('user_id', $teacher->id)
+            ->whereNull('revoked_at')
+            ->update(['revoked_at' => date('Y-m-d H:i:s')]);
+
+        $this->audit($request, 'teacher.deleted', (int) $teacher->id, 'user');
+
+        return $this->json($response, ['ok' => true]);
+    }
+
+    /**
+     * DELETE /manage/students/{id} — a HARD delete: the account and every
+     * trace of its progress go in one transaction ("I want to be able to
+     * delete everything" — client). Unlike course closure (FR-1.14) this
+     * removes the user row itself, so it is for single mistaken or
+     * departed accounts, not for ending a course.
+     *
+     * Most progress tables cascade from users in the DB; they are still
+     * deleted explicitly so this reads as the complete list of what is
+     * destroyed (same style as CourseClosureService::close).
+     */
+    public function deleteStudent(
+        ServerRequestInterface $request,
+        ResponseInterface $response,
+        array $args,
+    ): ResponseInterface {
+        $scope = $this->scope($request);
+        $scope->requireRole(User::ROLE_ADMIN, User::ROLE_SUPERADMIN);
+
+        // Scoped lookup: an admin deletes within their own centre only.
+        $student = $scope->applyToUsers(User::query())
+            ->where('users.id', (int) $args['id'])
+            ->where('role', User::ROLE_STUDENT)
+            ->first();
+
+        if ($student === null) {
+            throw ApiException::notFound();
+        }
+
+        $id = (int) $student->id;
+
+        Capsule::connection()->transaction(function () use ($id): void {
+            // attempt_answers would cascade with its attempts anyway;
+            // explicit-first keeps the purge readable and order-safe.
+            Capsule::table('attempt_answers')
+                ->whereIn('attempt_id', fn ($q) => $q->select('id')
+                    ->from('section_attempts')
+                    ->where('student_id', $id))
+                ->delete();
+            Capsule::table('section_attempts')->where('student_id', $id)->delete();
+            Capsule::table('student_section_stats')->where('student_id', $id)->delete();
+            Capsule::table('student_activity_days')->where('student_id', $id)->delete();
+            Capsule::table('student_bookmarks')->where('student_id', $id)->delete();
+            Capsule::table('refresh_tokens')->where('user_id', $id)->delete();
+            Capsule::table('device_tokens')->where('user_id', $id)->delete();
+            // The push inbox references users with ON DELETE CASCADE —
+            // deleted here so the list above stays complete.
+            Capsule::table('notification_receipts')->where('user_id', $id)->delete();
+            Capsule::table('users')->where('id', $id)->delete();
+        });
+
+        $this->audit($request, 'student.deleted', $id, 'user');
+
+        return $this->json($response, ['ok' => true]);
+    }
+
+    /**
+     * DELETE /manage/classrooms/{id} — refused while ACTIVE students are
+     * enrolled: they must be deleted individually or the course closed
+     * (FR-1.14) first, so a roomful of accounts can never vanish as a
+     * side effect. Disabled leftovers of a closed course are detached
+     * (users.classroom_id is nullable) — their accounts survive for the
+     * audit trail; the classroom row and its remaining aggregate rows
+     * (section_attempts / student_section_stats cascade on classroom_id)
+     * do not.
+     */
+    public function deleteClassroom(
+        ServerRequestInterface $request,
+        ResponseInterface $response,
+        array $args,
+    ): ResponseInterface {
+        $scope = $this->scope($request);
+        $scope->requireRole(User::ROLE_ADMIN, User::ROLE_SUPERADMIN);
+
+        $classroom = $scope->applyToClassrooms(Classroom::query())
+            ->where('id', (int) $args['id'])
+            ->first();
+
+        if ($classroom === null) {
+            throw ApiException::notFound();
+        }
+
+        $active = Capsule::table('users')
+            ->where('classroom_id', $classroom->id)
+            ->where('role', User::ROLE_STUDENT)
+            ->where('is_active', 1)
+            ->count();
+
+        if ($active > 0) {
+            throw ApiException::validation(
+                "Synpda {$active} işjeň okuwçy bar — öňürti okuwçylary pozuň ýa-da kursy ýapyň.",
+                "В классе есть активные ученики ({$active}) — сначала удалите учеников или завершите курс."
+            );
+        }
+
+        Capsule::connection()->transaction(function () use ($classroom): void {
+            // users.classroom_id is RESTRICT — disabled students of a
+            // closed course still point here and must be detached before
+            // the row can go.
+            Capsule::table('users')->where('classroom_id', $classroom->id)->update(['classroom_id' => null]);
+            Capsule::table('classrooms')->where('id', $classroom->id)->delete();
+        });
+
+        $this->audit($request, 'classroom.deleted', (int) $classroom->id, 'classroom');
+
+        return $this->json($response, ['ok' => true]);
+    }
+
     /** One audit row per superadmin structural change (FR-1.12). */
     private function audit(
         ServerRequestInterface $request,
@@ -667,8 +832,8 @@ final class ManagementController extends Controller
             ->orderBy('l.sort_order')
             ->orderBy('cu.level_position')
             ->select([
-                'cu.id', 'cu.code', 'cu.title',
-                'u.id as unit_id', 'u.number as unit_number',
+                'cu.id', 'cu.code', 'cu.label as cu_label', 'cu.title',
+                'u.id as unit_id', 'u.number as unit_number', 'u.name as unit_name',
                 'l.name as level_name', 'l.id as level_id',
             ])
             ->get();
@@ -727,7 +892,10 @@ final class ManagementController extends Controller
                 'level'       => $cu->level_name,
                 'unit_id'     => (int) $cu->unit_id,
                 'unit_number' => (int) $cu->unit_number,
-                'label'       => $cu->unit_number . $cu->code,
+                // Manual naming (2026-08-20): explicit unit name / child
+                // label win verbatim; legacy rows keep composing.
+                'unit_name'   => $cu->unit_name,
+                'label'       => $cu->cu_label ?? ($cu->unit_number . $cu->code),
                 'title'       => $cu->title,
                 'pages_ready' => 0,
                 'sections'    => collect($sections[$cu->id] ?? [])->map(fn ($s): array => [

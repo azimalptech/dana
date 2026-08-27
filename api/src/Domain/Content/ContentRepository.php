@@ -154,7 +154,10 @@ final class ContentRepository
 
                 $outChildren[] = [
                     'id'           => (int) $child->id,
-                    'label'        => $unit->number . '-' . $child->code,
+                    // Manual naming (2026-08-20): an explicit label is
+                    // the child unit's display identity, verbatim; legacy
+                    // rows keep the "{number}-{code}" composition.
+                    'label'        => $child->label ?? ($unit->number . '-' . $child->code),
                     'title'        => $child->title,
                     'success_rate' => $successRate,
                     'state'        => $state,
@@ -165,6 +168,10 @@ final class ContentRepository
             $parentUnits[] = [
                 'id'          => (int) $unit->id,
                 'number'      => (int) $unit->number,
+                // Manual naming (2026-08-20): when set, this IS the
+                // unit's display identity; null keeps the app composing
+                // its "Юнит {number}" style fallback.
+                'name'        => $unit->name,
                 'title'       => $unit->title,
                 'child_units' => $outChildren,
             ];
@@ -214,6 +221,10 @@ final class ContentRepository
                 'sec.*',
                 'cu.unit_id',
                 'cu.code as unit_code',
+                // Manual naming (2026-08-20): explicit child-unit label,
+                // preferred over the "{number}-{code}" composition by
+                // every consumer of this row.
+                'cu.label as unit_label',
                 'u.number as unit_number',
             ])
             ->first();
@@ -299,7 +310,7 @@ final class ContentRepository
                 'v.id', 'v.term_en', 'v.part_of_speech', 'v.ipa',
                 'v.translation_tk', 'v.translation_ru', 'v.example_en', 'v.audio_path',
                 'v.category', 'v.word_type',
-                'cu.code', 'u.number',
+                'cu.code', 'cu.label', 'u.number',
             ])
             ->get();
 
@@ -316,8 +327,9 @@ final class ContentRepository
             // (FR-14.6/FR-15.6). Null when the row carried neither.
             'category'       => $row->category,
             'word_type'      => $row->word_type,
-            // The word card's source-unit chip.
-            'label'          => $row->number . '-' . $row->code,
+            // The word card's source-unit chip. An explicit label wins
+            // verbatim (manual naming, 2026-08-20).
+            'label'          => $row->label ?? ($row->number . '-' . $row->code),
             'bookmarked'     => in_array((int) $row->id, $bookmarked, true),
         ])->all();
     }

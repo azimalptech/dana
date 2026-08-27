@@ -6,6 +6,8 @@ import { useAsync } from '../hooks';
 interface UnitRow {
   id: number;
   number: number;
+  /** Manual naming (FR-15.7): explicit name wins, null composes the legacy id. */
+  name: string | null;
   title: string | null;
   child_units: number;
 }
@@ -429,7 +431,7 @@ function LevelExportRows({
         level.units.map((unit) => (
           <tr key={unit.id}>
             <td style={{ paddingLeft: 28 }}>
-              Юнит {unit.number}
+              {unit.name || `Юнит ${unit.number}`}
               {unit.title && <span className="muted"> — {unit.title}</span>}
             </td>
             <td className="muted">{unit.child_units} подюнитов</td>

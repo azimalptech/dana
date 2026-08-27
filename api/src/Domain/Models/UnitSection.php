@@ -23,7 +23,7 @@ final class UnitSection extends Model
 
     protected $table = 'unit_sections';
 
-    protected $fillable = ['unit_id', 'code', 'title', 'sort_order', 'level_position'];
+    protected $fillable = ['unit_id', 'code', 'label', 'title', 'sort_order', 'level_position'];
 
     protected $casts = ['sort_order' => 'integer', 'level_position' => 'integer'];
 
@@ -39,9 +39,14 @@ final class UnitSection extends Model
         return $this->hasMany(Section::class)->orderBy('sort_order');
     }
 
-    /** Displayed label, e.g. unit 1 + code 'A' -> "1-A" (design 2026-08). */
+    /**
+     * Displayed label. An explicit `label` column value is the identity,
+     * verbatim (manual naming, client 2026-08-20); legacy rows compose
+     * unit 1 + code 'A' -> "1-A" as before (design 2026-08).
+     */
     public function label(): string
     {
-        return ($this->unit?->number ?? '?') . '-' . $this->code;
+        return $this->getAttribute('label')
+            ?? (($this->unit?->number ?? '?') . '-' . $this->code);
     }
 }

@@ -134,7 +134,7 @@ final class TeacherController extends Controller
                 'a.id', 'a.section_id', 'a.attempt_no', 'a.question_count',
                 'a.correct_count', 'a.percent', 'a.completed_at',
                 'sec.type as section_type', 'sec.title_tk', 'sec.title_ru',
-                'cu.code', 'u.number as unit_number',
+                'cu.code', 'cu.label as cu_label', 'u.number as unit_number',
             ])
             ->get();
 
@@ -160,7 +160,8 @@ final class TeacherController extends Controller
                 return [
                     'section_id'   => (int) $row->section_id,
                     'section_type' => $row->section_type,
-                    'label'        => $row->unit_number . '-' . $row->code,
+                    // Explicit label wins verbatim (manual naming, 2026-08-20).
+                    'label'        => $row->cu_label ?? ($row->unit_number . '-' . $row->code),
                     'title_tk'     => $row->title_tk,
                     'title_ru'     => $row->title_ru,
                     'attempt_no'   => (int) $row->attempt_no,
@@ -227,7 +228,7 @@ final class TeacherController extends Controller
             ->where('u.level_id', (int) $classroom->level_id)
             ->orderBy('u.sort_order')
             ->orderBy('cu.sort_order')
-            ->select(['cu.id', 'cu.code', 'cu.title', 'u.number'])
+            ->select(['cu.id', 'cu.code', 'cu.label', 'cu.title', 'u.number'])
             ->get();
 
         $units = [];
@@ -256,7 +257,8 @@ final class TeacherController extends Controller
 
             $units[] = [
                 'id'      => (int) $child->id,
-                'label'   => $child->number . '-' . $child->code,
+                // Explicit label wins verbatim (manual naming, 2026-08-20).
+                'label'   => $child->label ?? ($child->number . '-' . $child->code),
                 'title'   => $child->title,
                 'state'   => $state,
                 'average' => $tried === 0
@@ -328,7 +330,7 @@ final class TeacherController extends Controller
             ->join('units as u', 'u.id', '=', 'cu.unit_id')
             ->where('cu.id', $childUnitId)
             ->where('u.level_id', (int) $classroom->level_id)
-            ->select(['cu.id', 'cu.code', 'cu.title', 'u.number'])
+            ->select(['cu.id', 'cu.code', 'cu.label', 'cu.title', 'u.number'])
             ->first();
 
         if ($child === null) {
@@ -397,7 +399,8 @@ final class TeacherController extends Controller
 
         return $this->json($response, [
             'unit' => [
-                'label'   => $child->number . '-' . $child->code,
+                // Explicit label wins verbatim (manual naming, 2026-08-20).
+                'label'   => $child->label ?? ($child->number . '-' . $child->code),
                 'title'   => $child->title,
                 'average' => $tried === 0 ? null : (int) round($sum / max(1, count($sectionIds))),
             ],
@@ -444,6 +447,7 @@ final class TeacherController extends Controller
                 'v.id', 'v.term_en', 'v.part_of_speech', 'v.ipa',
                 'v.translation_tk', 'v.translation_ru', 'v.example_en',
                 'v.audio_path', 'v.category', 'v.word_type', 'cu.code',
+                'cu.label as cu_label',
             ])
             ->get();
 
@@ -460,7 +464,8 @@ final class TeacherController extends Controller
                 // Wordlist v2's Category and Type (FR-14.6/FR-15.6).
                 'category'       => $row->category,
                 'word_type'      => $row->word_type,
-                'label'          => $unit->number . '-' . $row->code,
+                // Explicit label wins verbatim (manual naming, 2026-08-20).
+                'label'          => $row->cu_label ?? ($unit->number . '-' . $row->code),
                 // Teachers have no bookmarks; the screen hides the toggle.
                 'bookmarked'     => false,
             ])->all(),

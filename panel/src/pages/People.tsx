@@ -327,8 +327,8 @@ function CenterDetail({
         </div>
 
         <p className="hint" style={{ marginTop: 0 }}>
-          Преподавателей создаёт администратор центра. Здесь они только для
-          просмотра — сбросить пароль можно, создать нельзя.
+          Преподавателей создаёт администратор центра. Здесь можно сбросить
+          пароль или удалить — создать нельзя.
         </p>
 
         {loading && <p className="muted">Загрузка…</p>}
@@ -338,7 +338,7 @@ function CenterDetail({
         )}
 
         {teachers.length > 0 && (
-          <StaffTable people={teachers} onReset={onHandover} />
+          <StaffTable people={teachers} onReset={onHandover} onDeleted={onChanged} />
         )}
       </section>
     </>
@@ -394,7 +394,14 @@ function CenterStaffPage() {
         )}
 
         {/* FR-13.18: the centre admin may view teacher passwords. */}
-        {teachers.length > 0 && <StaffTable people={teachers} onReset={setHandover} canReveal />}
+        {teachers.length > 0 && (
+          <StaffTable
+            people={teachers}
+            onReset={setHandover}
+            canReveal
+            onDeleted={() => staff.reload()}
+          />
+        )}
       </section>
     </>
   );
@@ -423,7 +430,7 @@ function StaffTable({
   onReset: (handover: Handover) => void;
   /** FR-13.18: only the centre admin's own view offers the reveal. */
   canReveal?: boolean;
-  /** Superadmin removes centre admins; teachers never get the button. */
+  /** When set, rows offer «Удалить» — admins and teachers alike. */
   onDeleted?: () => void;
 }) {
   return (
@@ -514,12 +521,16 @@ function StaffRow({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function removeAdmin() {
+  async function removeStaff() {
     setBusy(true);
     setError(null);
 
     try {
-      await api.del(`/manage/admins/${person.id}`);
+      await api.del(
+        person.role === 'admin'
+          ? `/manage/admins/${person.id}`
+          : `/manage/teachers/${person.id}`,
+      );
       onDeleted?.();
     } catch (e: unknown) {
       setError(e instanceof ApiError ? e.message : 'Не удалось удалить.');
@@ -607,15 +618,16 @@ function StaffRow({
         >
           {busy ? '…' : 'Сбросить пароль'}
         </button>
-        {person.role === 'admin' && onDeleted && (
+        {onDeleted && (
           <>
             {' '}
             <button
               className="btn btn-danger btn-sm"
               disabled={busy}
               onClick={() => {
-                if (confirm(`Удалить администратора «${person.full_name}»? Доступ пропадёт сразу.`)) {
-                  void removeAdmin();
+                const who = person.role === 'admin' ? 'администратора' : 'преподавателя';
+                if (confirm(`Удалить ${who} «${person.full_name}»? Доступ пропадёт сразу.`)) {
+                  void removeStaff();
                 }
               }}
             >

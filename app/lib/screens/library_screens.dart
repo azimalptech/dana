@@ -569,25 +569,31 @@ Future<void> showWordCard(BuildContext context, Map<String, dynamic> item) {
                 ),
                 child: Row(
                   children: [
-                    Container(
-                      width: 40,
-                      height: 40,
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        color: DanaColors.card,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(
-                        '${unitNumber ?? ''}'.padLeft(2, '0'),
-                        style: const TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w600,
-                          color: DanaColors.ink,
-                          letterSpacing: -0.3,
+                    // Units can carry a free-form name now (FR-15.7), so a
+                    // label like "Foods" has no leading digits to show in
+                    // the number tile — it is dropped rather than padded
+                    // into a meaningless "00".
+                    if (unitNumber != null) ...[
+                      Container(
+                        width: 40,
+                        height: 40,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: DanaColors.card,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          '$unitNumber'.padLeft(2, '0'),
+                          style: const TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                            color: DanaColors.ink,
+                            letterSpacing: -0.3,
+                          ),
                         ),
                       ),
-                    ),
-                    const SizedBox(width: 12),
+                      const SizedBox(width: 12),
+                    ],
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
