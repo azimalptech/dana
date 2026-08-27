@@ -172,6 +172,20 @@ try {
     // ===================================================================
     echo "=== A. fixtures: import, publish ===\n";
 
+    // The dev database may already hold the client's U1-* external codes
+    // (a live import of the same files). external_code is globally
+    // unique, so the fixture import would UPDATE those rows instead of
+    // creating 134 fresh ones — the same collision
+    // content_v2_import_test.php clears, with the same safety: this all
+    // runs inside the outer transaction, so the rollback at the end
+    // restores every live row. Their attempt_answers go first (FK).
+    $liveIds = Capsule::table('questions')->where('external_code', 'like', 'U1-%')->pluck('id')->all();
+    if ($liveIds !== []) {
+        Capsule::table('attempt_answers')->whereIn('question_id', $liveIds)->delete();
+        Capsule::table('questions')->whereIn('id', $liveIds)->delete();
+    }
+    Capsule::table('vocabulary_items')->where('external_code', 'like', 'U1-%')->delete();
+
     $importFiles = correctedFiles($tmpDir);
     $result = (new XlsxImportService())->import($importFiles);
     check('fixtures import clean', $result['errors'] === [] && $result['created']['questions'] === 134,
