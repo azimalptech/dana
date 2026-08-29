@@ -16,7 +16,9 @@ Question ID | Level | Unit | Lesson | Topic | Subtopic | Question Type | Rule | 
 ```
 
 - The importer tolerates the header typos seen in real files
-  (`Answer Desription`, `Eligble`) and trailing empty columns.
+  (`Answer Desription`, `Eligble`) and trailing empty columns. The
+  2026-08-27 files renamed `Answer Description` to **`Feedback`** —
+  accepted as a first-class alias, same meaning.
 - **Which skill** (= which typed section) comes from the sheet/file name:
   `Listening` → listening section, `Grammar` → grammar, `Vocabulary` →
   vocabulary section of the row's child unit.
@@ -29,7 +31,11 @@ Question ID | Level | Unit | Lesson | Topic | Subtopic | Question Type | Rule | 
 - `Topic`, `Subtopic`, `Rule`, `Answer Description` → stored verbatim,
   **English only** (client decision) in `topic`, `subtopic`, `rule_en`,
   `answer_description_en`.
-- `Eligble` = `Yes` → `quiz_eligible = 1`, anything else → 0.
+- `Eligble` = `Yes` → `quiz_eligible = 1`, anything else → 0. A sheet
+  with **no eligibility column at all** (the 2026-08-27 files) imports
+  every question as eligible — matching the panel's opt-out default
+  (FR-15.11), so a whole-unit import can never silently starve the
+  quiz draw.
 
 #### Question Type values
 | File value | Stored set type | Notes |

@@ -178,7 +178,11 @@ final class TeacherController extends Controller
                             // The right answer, so the teacher can see
                             // the gap without opening the editor.
                             'answer'   => self::correctAnswer((string) $a->type, $payload),
-                            'given'    => json_decode((string) $a->given, true),
+                            'given'    => self::givenText(
+                                (string) $a->type,
+                                $payload,
+                                json_decode((string) $a->given, true)
+                            ),
                             'correct'  => (bool) $a->is_correct,
                         ];
                     })->values()->all(),
@@ -476,10 +480,38 @@ final class TeacherController extends Controller
     // teacher's credential authority entirely — those routes are now
     // /manage/students/{id}/credential|password, admin-only.
 
+    /**
+     * The readable text of a stem or option that may be a v2 part object
+     * (`{text}` / `{audio_note}` / `{image_note}`, §2) or a legacy bare
+     * string. Casting the object with (string) printed the literal word
+     * "Array" all over the teacher's review — a media part now names its
+     * note instead ("аудио: «seven»"), which is what the panel shows too.
+     */
+    private static function partText(mixed $part): string
+    {
+        if (is_array($part)) {
+            if (($part['text'] ?? '') !== '') {
+                return (string) $part['text'];
+            }
+
+            if (($part['audio_note'] ?? '') !== '') {
+                return 'аудио: «' . $part['audio_note'] . '»';
+            }
+
+            if (($part['image_note'] ?? '') !== '') {
+                return 'фото: «' . $part['image_note'] . '»';
+            }
+
+            return '';
+        }
+
+        return (string) ($part ?? '');
+    }
+
     private static function describe(string $type, array $payload): string
     {
         return match ($type) {
-            ExerciseSet::TYPE_MULTIPLE_CHOICE => (string) ($payload['stem'] ?? ''),
+            ExerciseSet::TYPE_MULTIPLE_CHOICE => self::partText($payload['stem'] ?? ''),
             ExerciseSet::TYPE_FILL_BLANK      => trim(($payload['before'] ?? '') . ' ___ ' . ($payload['after'] ?? '')),
             ExerciseSet::TYPE_REORDER         => implode(' ', $payload['tokens'] ?? []),
             ExerciseSet::TYPE_MATCH_PAIRS     => count($payload['pairs'] ?? []) . ' pairs',
@@ -493,7 +525,7 @@ final class TeacherController extends Controller
     private static function correctAnswer(string $type, array $payload): string
     {
         return match ($type) {
-            ExerciseSet::TYPE_MULTIPLE_CHOICE => (string) (($payload['options'] ?? [])[$payload['answer'] ?? 0] ?? ''),
+            ExerciseSet::TYPE_MULTIPLE_CHOICE => self::partText(($payload['options'] ?? [])[$payload['answer'] ?? 0] ?? ''),
             ExerciseSet::TYPE_FILL_BLANK      => (string) (($payload['answer'] ?? [])[0] ?? ''),
             ExerciseSet::TYPE_REORDER         => implode(' ', $payload['tokens'] ?? []),
             ExerciseSet::TYPE_MATCH_PAIRS     => implode(', ', array_map(
@@ -503,6 +535,26 @@ final class TeacherController extends Controller
             ExerciseSet::TYPE_FILL_LETTER_SPACE => self::letterSpaceText($payload, false),
             default                             => '',
         };
+    }
+
+    /**
+     * What the student actually chose, as text. For multiple choice the
+     * wire answer is the option's ORIGINAL index (FR-14.4) — the teacher
+     * saw «✗ 2» where the chosen option's words belong. Other types
+     * already travel as words; lists are joined for display.
+     */
+    private static function givenText(string $type, array $payload, mixed $given): mixed
+    {
+        if ($type === ExerciseSet::TYPE_MULTIPLE_CHOICE && (is_int($given) || ctype_digit((string) $given))) {
+            return self::partText(($payload['options'] ?? [])[(int) $given] ?? '');
+        }
+
+        if (is_array($given) && array_is_list($given) && $given !== []
+            && array_filter($given, static fn ($v): bool => !is_scalar($v)) === []) {
+            return implode(' ', array_map(strval(...), $given));
+        }
+
+        return $given;
     }
 
     /** The authored sentence, blanks either masked or spelled out. */

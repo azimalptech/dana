@@ -89,6 +89,9 @@ final class XlsxImportService
         'option d'           => 'opt3',
         'answer description' => 'answerdesc',
         'answer desription'  => 'answerdesc',
+        // The client's 2026-08-27 files renamed the column (§1.1) — same
+        // content, the verdict sheet's ANSWER DESCRIPTION line.
+        'feedback'           => 'answerdesc',
         'eligble'            => 'eligible',
         'eligible'           => 'eligible',
     ];
@@ -467,7 +470,14 @@ final class XlsxImportService
                 isset($payload['stem']['image_note']) => 'picture',
                 default                               => 'text',
             },
-            'quiz_eligible'         => self::norm($c['eligible'] ?? '') === 'yes' ? 1 : 0,
+            // Column present -> authoritative yes/no (FR-14.1). Column
+            // ABSENT from the sheet -> eligible, matching the panel's
+            // opt-out default (FR-15.11): the client's 2026-08-27 files
+            // dropped the column entirely, and importing a whole unit
+            // with zero eligible questions starves the quiz draw.
+            'quiz_eligible'         => array_key_exists('eligible', $c)
+                ? (self::norm($c['eligible']) === 'yes' ? 1 : 0)
+                : 1,
             'topic'                 => mb_substr($c['topic'] ?? '', 0, 120) ?: null,
             'subtopic'              => mb_substr($c['subtopic'] ?? '', 0, 120) ?: null,
             'rule_en'               => mb_substr($c['rule'] ?? '', 0, 255) ?: null,
