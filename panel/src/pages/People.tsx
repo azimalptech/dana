@@ -521,6 +521,30 @@ function StaffRow({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // FR-15.14: the centre admin edits a teacher's name and number in
+  // place. Admin rows stay superadmin-managed and are not editable here.
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState(person.full_name);
+  const [login, setLogin] = useState(person.login);
+
+  async function saveTeacher() {
+    setBusy(true);
+    setError(null);
+
+    try {
+      await api.post(`/manage/teachers/${person.id}`, {
+        full_name: name,
+        login,
+      });
+      setEditing(false);
+      onDeleted?.(); // same reload the delete path uses
+    } catch (e: unknown) {
+      setError(e instanceof ApiError ? e.message : 'Не удалось сохранить.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function removeStaff() {
     setBusy(true);
     setError(null);
@@ -590,6 +614,47 @@ function StaffRow({
     }
   }
 
+  if (editing) {
+    return (
+      <tr>
+        <td>
+          <input value={name} onChange={(e) => setName(e.target.value)} />
+        </td>
+        <td>
+          <input
+            value={login}
+            onChange={(e) => setLogin(e.target.value)}
+            placeholder="+99365002233"
+          />
+        </td>
+        <td colSpan={2} style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>
+          {error && (
+            <span style={{ color: 'var(--error)', fontSize: 12, marginRight: 8 }}>{error}</span>
+          )}
+          <button
+            className="btn btn-sm"
+            disabled={busy || name.trim() === '' || login.trim() === ''}
+            onClick={() => void saveTeacher()}
+          >
+            {busy ? '…' : 'Сохранить'}
+          </button>{' '}
+          <button
+            className="btn btn-ghost btn-sm"
+            disabled={busy}
+            onClick={() => {
+              setEditing(false);
+              setName(person.full_name);
+              setLogin(person.login);
+              setError(null);
+            }}
+          >
+            Отмена
+          </button>
+        </td>
+      </tr>
+    );
+  }
+
   return (
     <tr>
       <td>
@@ -600,6 +665,13 @@ function StaffRow({
       <td>{person.role === 'teacher' ? (person.classrooms ?? 0) : '—'}</td>
       <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
         {error && <span style={{ color: 'var(--error)', fontSize: 12, marginRight: 8 }}>{error}</span>}
+        {person.role === 'teacher' && (
+          <>
+            <button className="btn btn-ghost btn-sm" disabled={busy} onClick={() => setEditing(true)}>
+              Изменить
+            </button>{' '}
+          </>
+        )}
         {canReveal && person.role === 'teacher' && (
           <>
             <button className="btn btn-ghost btn-sm" disabled={busy} onClick={() => void revealPassword()}>

@@ -182,6 +182,8 @@ $app->group('/api/v1', function (RouteCollectorProxy $group) use ($auth): void {
         $secure->get('/manage/staff', [ManagementController::class, 'staffList']);
         $secure->post('/manage/admins', [ManagementController::class, 'createAdmin']);
         $secure->post('/manage/teachers', [ManagementController::class, 'createTeacher']);
+        // FR-15.14: the centre admin edits a teacher's name and number.
+        $secure->post('/manage/teachers/{id}', [ManagementController::class, 'updateTeacher']);
         $secure->post('/manage/staff/{id}/password', [ManagementController::class, 'resetStaffPassword']);
         $secure->get('/manage/options', [ManagementController::class, 'options']);
         $secure->post('/manage/classrooms', [ManagementController::class, 'createClassroom']);

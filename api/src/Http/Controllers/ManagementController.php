@@ -266,17 +266,67 @@ final class ManagementController extends Controller
             );
         }
 
-        $teacher->is_active = false;
-        $teacher->save();
+        // FR-15.14: a HARD delete — the row goes, not an «отключён»
+        // badge (client, 2026-08-27; deactivation read as the teacher
+        // still existing). Closed courses keep their history minus the
+        // pointer, the students' inbox copies keep their messages minus
+        // the sender — migration 014 made those columns nullable so the
+        // FKs allow exactly this and nothing else.
+        Capsule::connection()->transaction(function () use ($teacher): void {
+            Capsule::table('classrooms')->where('teacher_id', $teacher->id)
+                ->update(['teacher_id' => null]);
+            Capsule::table('classrooms')->where('created_by', $teacher->id)
+                ->update(['created_by' => null]);
+            Capsule::table('notifications')->where('sender_id', $teacher->id)
+                ->update(['sender_id' => null]);
+            Capsule::table('users')->where('created_by', $teacher->id)
+                ->update(['created_by' => null]);
 
-        Capsule::table('refresh_tokens')
-            ->where('user_id', $teacher->id)
-            ->whereNull('revoked_at')
-            ->update(['revoked_at' => date('Y-m-d H:i:s')]);
+            // refresh_tokens / device_tokens / notification_receipts
+            // cascade from the row itself.
+            Capsule::table('users')->where('id', $teacher->id)->delete();
+        });
 
         $this->audit($request, 'teacher.deleted', (int) $teacher->id, 'user');
 
         return $this->json($response, ['ok' => true]);
+    }
+
+    /**
+     * POST /manage/teachers/{id} — the centre admin edits a teacher's
+     * name and phone number (FR-15.14). Password stays its own flow.
+     */
+    public function updateTeacher(
+        ServerRequestInterface $request,
+        ResponseInterface $response,
+        array $args,
+    ): ResponseInterface {
+        $scope = $this->scope($request);
+        $scope->requireRole(User::ROLE_ADMIN, User::ROLE_SUPERADMIN);
+
+        $teacher = $scope->applyToUsers(User::query())
+            ->where('users.id', (int) $args['id'])
+            ->where('role', User::ROLE_TEACHER)
+            ->first();
+
+        if ($teacher === null) {
+            throw ApiException::notFound();
+        }
+
+        $body = $this->body($request);
+
+        $this->staff->updateTeacher(
+            $scope,
+            $teacher,
+            trim((string) ($body['login'] ?? '')),
+            (string) ($body['full_name'] ?? ''),
+        );
+
+        $this->audit($request, 'teacher.updated', (int) $teacher->id, 'user');
+
+        return $this->json($response, [
+            'id' => (int) $teacher->id, 'login' => $teacher->login, 'full_name' => $teacher->full_name,
+        ]);
     }
 
     /**

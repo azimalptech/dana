@@ -76,6 +76,12 @@ class _ExerciseScreenState extends State<ExerciseScreen> with StudyTimeAware {
   /// question (FR-13.5: nothing is saved mid-section).
   final List<Map<String, dynamic>> _answers = [];
 
+  /// Question ids already buffered into [_answers]. A wrong practice
+  /// answer re-queues its question (FR-15.13), so the same id can be
+  /// checked several times — but only the FIRST answer is what the
+  /// attempt submits and scores ("first try counts", client 2026-08-27).
+  final Set<int> _answeredIds = {};
+
   dynamic _answer;
   bool? _verdict;
 
@@ -229,8 +235,13 @@ class _ExerciseScreenState extends State<ExerciseScreen> with StudyTimeAware {
         _answerDescription =
             (description == null || description.isEmpty) ? null : description;
         // Buffered exactly as graded, so the final attempt submits what
-        // the student saw the verdict for.
-        _answers.add({'question_id': questionId, 'answer': answer});
+        // the student saw the verdict for — but only the FIRST answer
+        // per question: a re-queued retry (FR-15.13) is practice, not a
+        // second chance at the score.
+        final id = (questionId as num).toInt();
+        if (_answeredIds.add(id)) {
+          _answers.add({'question_id': questionId, 'answer': answer});
+        }
       });
     } on ApiError catch (e) {
       if (!mounted) return;
@@ -242,29 +253,68 @@ class _ExerciseScreenState extends State<ExerciseScreen> with StudyTimeAware {
     }
   }
 
-  /// Leaves the verdict sheet. Wrong answers move on like right ones —
-  /// there is no re-queue any more (FR-13.7).
+  /// Leaves the verdict sheet.
+  ///
+  /// FR-15.13 (client, 2026-08-27): in the PRACTICE modules a wrongly
+  /// answered question re-queues at the end of the run and keeps coming
+  /// back until answered correctly — the run only finishes when every
+  /// question has been solved. The score is untouched by retries: only
+  /// the first answer was buffered (see _check), so the submitted
+  /// attempt grades the first try. The quiz stays a one-pass exam.
   void _advance() {
-    final last = _index + 1 >= _questions.length;
+    final requeue = _verdict == false && _sectionType != 'quiz';
+    final atLast = _index + 1 >= _questions.length;
 
     // A clip from this question must not keep sounding over the next.
     AudioBus.instance.stop();
 
     setState(() {
+      if (requeue) _questions.add(_reshuffledCopy(_question));
+
       _verdict = null;
       _answer = null;
       _answerDescription = null;
-      if (!last) _index++;
+
+      // The re-queue guarantees a next question even from the last slot.
+      if (!atLast || requeue) _index++;
     });
 
-    if (last) _finish();
+    if (atLast && !requeue) _finish();
+  }
+
+  /// A display-fresh copy of a question for its re-queue: the option
+  /// list / word bank are locally reshuffled so the retry cannot be
+  /// pattern-matched by position. Safe by construction — answers travel
+  /// as the option's ORIGINAL index `i` (or text), never the display
+  /// position, so reordering the display cannot change which option is
+  /// correct: "am" stays the answer wherever it lands.
+  Map<String, dynamic> _reshuffledCopy(Map<String, dynamic> question) {
+    final copy = Map<String, dynamic>.from(question);
+    final payload = (question['payload'] as Map?)?.cast<String, dynamic>();
+    if (payload == null) return copy;
+
+    final newPayload = Map<String, dynamic>.from(payload);
+
+    if (newPayload['options'] is List) {
+      newPayload['options'] = List.of(newPayload['options'] as List)..shuffle();
+    }
+    if (newPayload['word_bank'] is List) {
+      newPayload['word_bank'] = List.of(newPayload['word_bank'] as List)
+        ..shuffle();
+    }
+
+    copy['payload'] = newPayload;
+    return copy;
   }
 
   /// FR-4.20: an exercise type this build cannot render is reported and
   /// stepped over, never fabricated. The answer is buffered as null so
   /// the attempt still carries one entry per question.
   void _skipUnsupported() {
-    _answers.add({'question_id': _question['id'], 'answer': null});
+    final id = (_question['id'] as num).toInt();
+    if (_answeredIds.add(id)) {
+      _answers.add({'question_id': _question['id'], 'answer': null});
+    }
     _advance();
   }
 

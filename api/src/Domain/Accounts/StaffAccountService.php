@@ -78,6 +78,39 @@ final class StaffAccountService
         return $this->create($scope, User::ROLE_TEACHER, $scope->centerId, $login, $password, $fullName);
     }
 
+    /**
+     * FR-15.14: the centre admin corrects a teacher's name or phone
+     * number in place — same validation as hiring, minus the password.
+     */
+    public function updateTeacher(Scope $scope, User $teacher, string $login, string $fullName): User
+    {
+        $allowed = $scope->isSuperadmin()
+            || ($scope->isAdmin() && $teacher->center_id === $scope->centerId);
+
+        if (!$allowed || $teacher->role !== User::ROLE_TEACHER) {
+            throw ApiException::forbidden();
+        }
+
+        $this->assertLogin($login);
+
+        if (trim($fullName) === '') {
+            throw ApiException::validation('Ady giriziň.', 'Введите имя.');
+        }
+
+        if (User::query()->where('login', $login)->where('id', '!=', $teacher->id)->exists()) {
+            throw ApiException::validation(
+                "Bu belgi eýýäm ulanylýar: {$login}.",
+                "Этот номер уже используется: {$login}."
+            );
+        }
+
+        $teacher->login = $login;
+        $teacher->full_name = trim($fullName);
+        $teacher->save();
+
+        return $teacher;
+    }
+
     public function resetPassword(Scope $scope, User $staff, #[SensitiveParameter] string $password): void
     {
         if ($staff->isStudent()) {
