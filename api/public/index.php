@@ -246,6 +246,8 @@ $app->group('/api/v1', function (RouteCollectorProxy $group) use ($auth): void {
         $secure->post('/manage/typed-sections/{section}/sets', [ContentAdminController::class, 'saveSet']);
         $secure->post('/manage/sets/{id}', [ContentAdminController::class, 'saveSet']);
         $secure->delete('/manage/sets/{id}', [ContentAdminController::class, 'deleteSet']);
+        // FR-15.11: flip «в квизе» on every question of a set at once.
+        $secure->post('/manage/sets/{id}/quiz-eligible', [ContentAdminController::class, 'setQuizEligibleBulk']);
 
         $secure->post('/manage/sets/{set}/questions', [ContentAdminController::class, 'saveQuestion']);
         $secure->post('/manage/questions/{id}', [ContentAdminController::class, 'saveQuestion']);

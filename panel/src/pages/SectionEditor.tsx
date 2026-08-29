@@ -1126,9 +1126,33 @@ function SetSection({
 
       {open && (
         <>
-      <p className="muted" style={{ fontSize: 13 }}>
-        Вопросов: {set.questions.length} · В квизе:{' '}
-        {set.questions.filter((q) => q.quiz_eligible).length}
+      <p className="muted" style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <span>
+          Вопросов: {set.questions.length} · В квизе:{' '}
+          {set.questions.filter((q) => q.quiz_eligible).length}
+        </span>
+        {/* FR-15.11: one click instead of an edit-save cycle per question —
+            unticked hand-authored questions quietly starve the quiz pools. */}
+        {set.questions.length > 0 &&
+          (set.questions.every((q) => q.quiz_eligible) ? (
+            <button
+              className="btn btn-ghost btn-sm"
+              onClick={() =>
+                void run(() => api.post(`/manage/sets/${set.id}/quiz-eligible`, { eligible: false }))
+              }
+            >
+              Убрать все из квиза
+            </button>
+          ) : (
+            <button
+              className="btn btn-sm"
+              onClick={() =>
+                void run(() => api.post(`/manage/sets/${set.id}/quiz-eligible`, { eligible: true }))
+              }
+            >
+              Все — в квиз
+            </button>
+          ))}
       </p>
 
       {set.questions.map((q, i) =>
@@ -1334,7 +1358,11 @@ function QuestionForm({
   );
   const [questionType, setQuestionType] = useState<string>(initial?.question_type ?? 'text');
   const [mediaPath, setMediaPath] = useState(initial?.media_path ?? '');
-  const [quizEligible, setQuizEligible] = useState(initial?.quiz_eligible ?? false);
+  // New questions default INTO the quiz (FR-15.11): authors forgot the
+  // opt-in checkbox on every hand-authored question, quietly starving
+  // the draw pools — «в наличии: 0» over a full section. Existing
+  // questions keep their stored flag.
+  const [quizEligible, setQuizEligible] = useState(initial?.quiz_eligible ?? true);
   const [payload, setPayload] = useState<Payload>(
     initial?.payload ?? structuredClone(EMPTY_PAYLOAD[type] ?? {}),
   );
@@ -1432,16 +1460,36 @@ function QuestionForm({
             onChange={(part) => set({ stem: part })}
           />
           {(payload.options ?? []).map((opt: McPart, i: number) => (
-            <McPartEditor
-              key={i}
-              label={`Вариант ${'ABCD'[i] ?? i + 1}`}
-              part={opt}
-              onChange={(part) => {
-                const options = [...payload.options];
-                options[i] = part;
-                set({ options });
-              }}
-            />
+            <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+              {/* The stored option order is the import's shuffle — the
+                  correct answer sits at payload.answer, NOT at A. Saving
+                  used to force answer=0, so merely re-saving a question
+                  (to upload audio, to tick «в квизе») silently made
+                  option A "correct" and scrambled the key. The radio
+                  makes the true answer visible and editable, and the
+                  save keeps it. */}
+              <input
+                type="radio"
+                name={`mc-answer-${initial?.id ?? 'new'}`}
+                style={{ width: 18, marginTop: 30 }}
+                title="Правильный ответ"
+                checked={(payload.answer ?? 0) === i}
+                onChange={() => set({ answer: i })}
+              />
+              <div style={{ flex: 1 }}>
+                <McPartEditor
+                  label={`Вариант ${'ABCD'[i] ?? i + 1}${
+                    (payload.answer ?? 0) === i ? ' — правильный' : ''
+                  }`}
+                  part={opt}
+                  onChange={(part) => {
+                    const options = [...payload.options];
+                    options[i] = part;
+                    set({ options });
+                  }}
+                />
+              </div>
+            </div>
           ))}
           <div style={{ display: 'flex', gap: 8 }}>
             {(payload.options ?? []).length < 4 && (
@@ -1664,8 +1712,12 @@ function QuestionForm({
               question_type: questionType,
               media_path: questionType === 'text' ? null : mediaPath || null,
               quiz_eligible: quizEligible,
-              // v2 mc: option A (index 0) is the stored correct answer.
-              payload: mcV2 ? { ...payload, answer: 0 } : payload,
+              // The payload's answer index is the radio's choice — sent
+              // as-is. The old `answer: 0` here assumed the FILE
+              // convention (option A = correct) against a DB that stores
+              // the import's SHUFFLED order, so every re-save moved the
+              // correct answer to whichever option was displayed first.
+              payload,
             })
           }
         >

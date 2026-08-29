@@ -587,6 +587,42 @@ final class ContentAdminController extends Controller
         return $this->json($response, ['id' => Capsule::table('exercise_sets')->insertGetId($fields)], 201);
     }
 
+    /**
+     * POST /manage/sets/{id}/quiz-eligible {eligible: bool} — flip the
+     * quiz flag on EVERY active question of the set at once (FR-15.11).
+     * One by one, 17 hand-authored questions meant 17 edit-save cycles
+     * before the quiz pools saw anything; this is the panel's
+     * «Все — в квиз» button. The child unit's stored draw self-heals
+     * immediately, same as a target change.
+     */
+    public function setQuizEligibleBulk(
+        ServerRequestInterface $request,
+        ResponseInterface $response,
+        array $args,
+    ): ResponseInterface {
+        $this->requireSuperadmin($request);
+        $setId = (int) $args['id'];
+        $eligible = !empty($this->body($request)['eligible']) ? 1 : 0;
+
+        $set = Capsule::table('exercise_sets as es')
+            ->join('sections as s', 's.id', '=', 'es.section_id')
+            ->where('es.id', $setId)
+            ->first(['es.id', 's.unit_section_id']);
+
+        if ($set === null) {
+            throw ApiException::notFound();
+        }
+
+        $updated = Capsule::table('questions')
+            ->where('exercise_set_id', $setId)
+            ->where('is_active', 1)
+            ->update(['quiz_eligible' => $eligible, 'updated_at' => date('Y-m-d H:i:s')]);
+
+        $this->quizDraws->ensure((int) $set->unit_section_id);
+
+        return $this->json($response, ['updated' => $updated, 'eligible' => (bool) $eligible]);
+    }
+
     public function deleteSet(
         ServerRequestInterface $request,
         ResponseInterface $response,
