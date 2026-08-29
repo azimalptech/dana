@@ -293,11 +293,18 @@ flutter build apk --release --dart-define=API_BASE=https://your.actual.domain/ap
 ```bash
 cd /var/www/dana
 ./deploy/redeploy.sh
-sudo systemctl reload apache2   # only needed because of opcache.validate_timestamps=0 above
 ```
 
+The script reloads PHP for you at the end — **do not skip that step if you
+deploy by hand.** With `opcache.validate_timestamps = 0` (§9) PHP compiles
+each file once and never re-reads it, so a `git pull` alone changes the
+files on disk while every request keeps running the OLD code, silently and
+with nothing in any log. That is exactly how an importer fix once landed
+on disk, got re-run, and appeared not to work at all.
+
 The script: `git pull` → `composer install` → `npm run build` →
-`php bin/migrate.php`. All four are safe to re-run — migrations track
+`php bin/migrate.php` → reload php-fpm / nginx / apache (whichever is
+installed). All are safe to re-run — migrations track
 what's applied in a `migrations` table (`api/bin/migrate.php`), and
 nothing in the script touches `api/.env` or `storage/`.
 
