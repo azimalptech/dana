@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import { ApiError, api, type PanelUser } from './api';
 import Classrooms from './pages/Classrooms';
@@ -47,26 +47,54 @@ const NAV: Record<'superadmin' | 'admin', NavEntry[]> = {
 export default function App() {
   const [user, setUser] = useState<PanelUser | null>(null);
   const [booting, setBooting] = useState(true);
+  const [unreachable, setUnreachable] = useState(false);
   const [page, setPage] = useState<Page>('progress');
 
-  useEffect(() => {
+  const boot = useCallback(() => {
     if (!api.isSignedIn()) {
       setBooting(false);
       return;
     }
 
+    setBooting(true);
+    setUnreachable(false);
+
     api
       .get<{ user: PanelUser }>('/auth/me')
       .then((body) => setUser(body.user))
       .catch((e: unknown) => {
-        // A stale token should land on the login screen, not a broken shell.
-        if (e instanceof ApiError) setUser(null);
+        if (!(e instanceof ApiError)) return;
+
+        // Only 401/403 mean the session was REJECTED. Everything else —
+        // no connection, a 5xx, or the 404 a proxy returns when its
+        // backend is down — means the server could not answer, which is
+        // not a reason to make an admin type their password again
+        // (FR-15.15).
+        if (e.status !== 401 && e.status !== 403) {
+          setUnreachable(true);
+          return;
+        }
+
+        setUser(null);
       })
       .finally(() => setBooting(false));
   }, []);
 
+  useEffect(boot, [boot]);
+
   if (booting) {
     return <div className="login-wrap muted">Загрузка…</div>;
+  }
+
+  if (unreachable && !user) {
+    return (
+      <div className="login-wrap">
+        <p className="muted">Сервер недоступен. Сессия сохранена.</p>
+        <button type="button" className="btn" onClick={boot}>
+          Повторить
+        </button>
+      </div>
+    );
   }
 
   if (!user) {

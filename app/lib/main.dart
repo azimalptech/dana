@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -40,6 +42,17 @@ class AppState extends ChangeNotifier {
   bool get isTeacher => user?['role'] == 'teacher';
 
   Future<void> boot() async {
+    // The server can end a session under the app's feet — the account
+    // disabled, or FR-12.2 signing this student out because they logged
+    // in on another phone. Show the login screen when that happens
+    // instead of a shell whose every tap fails (FR-15.15).
+    Api.instance.onSessionEnded = () {
+      if (user == null) return;
+      user = null;
+      SharedPreferences.getInstance().then((prefs) => _cacheUser(prefs, null));
+      notifyListeners();
+    };
+
     final prefs = await SharedPreferences.getInstance();
     language = prefs.getString('language');
     // FR-13.25: a system-language change made while the app was closed
@@ -52,15 +65,47 @@ class AppState extends ChangeNotifier {
       try {
         final body = await Api.instance.get('/auth/me');
         user = body['user'] as Map<String, dynamic>?;
-      } on ApiError {
-        // Token no longer valid — fall back to the login screen rather
-        // than showing a broken shell.
-        user = null;
+        await _cacheUser(prefs, user);
+      } on ApiError catch (e) {
+        if (e.status == 401 || e.status == 403) {
+          // The session was REJECTED — the account is gone, disabled, or
+          // signed in elsewhere. The login screen is right.
+          user = null;
+          await _cacheUser(prefs, null);
+        } else {
+          // The server was merely unreachable: no signal in the corridor,
+          // or a redeploy in progress. The session is untouched, so open
+          // on the last known profile instead of demanding the password
+          // again (FR-15.15). Grammar and vocabulary are already cached
+          // for exactly this case (FR-12.9); anything that needs the
+          // network will say so where it is used.
+          user = _cachedUser(prefs);
+        }
       }
     }
 
     ready = true;
     notifyListeners();
+  }
+
+  static Map<String, dynamic>? _cachedUser(SharedPreferences prefs) {
+    final raw = prefs.getString('cached_user');
+    if (raw == null || raw.isEmpty) return null;
+
+    try {
+      return jsonDecode(raw) as Map<String, dynamic>;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Future<void> _cacheUser(
+      SharedPreferences prefs, Map<String, dynamic>? value) async {
+    if (value == null) {
+      await prefs.remove('cached_user');
+    } else {
+      await prefs.setString('cached_user', jsonEncode(value));
+    }
   }
 
   Future<void> setLanguage(String value) async {
@@ -97,12 +142,17 @@ class AppState extends ChangeNotifier {
 
   void setUser(Map<String, dynamic>? value) {
     user = value;
+    // Kept for the offline launch in [boot]. Not awaited: signing in must
+    // not wait on a disk write.
+    SharedPreferences.getInstance().then((prefs) => _cacheUser(prefs, value));
     notifyListeners();
   }
 
   Future<void> signOut() async {
     await Api.instance.logout();
     user = null;
+    // A shared classroom phone must not open on the last student's name.
+    await _cacheUser(await SharedPreferences.getInstance(), null);
     notifyListeners();
   }
 }

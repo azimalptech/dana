@@ -156,6 +156,8 @@ Edit `api/.env`:
 | `DB_PASSWORD` | the password from §3 |
 | `APP_CRED_KEY` | `php -r "echo base64_encode(random_bytes(32)), PHP_EOL;"` — **generate once, then never rotate.** It decrypts the teacher password-reveal path (FR-1.10); rotating it locks out every existing student's stored credential. |
 | `JWT_SECRET` | same command, a different 32 random bytes |
+| `JWT_ACCESS_TTL` / `JWT_REFRESH_TTL` | leave at `900` / `2592000` — 15 minutes and 30 days. Sessions renew themselves; shortening these does not make anything safer, it just makes the renewal run more often. |
+| `JWT_REFRESH_GRACE` | leave at `60`. It is how long a just-rotated refresh token may be presented again before the server treats it as stolen — the window that covers a retry after a lost response and a second browser tab (FR-15.15). Setting it to `0` restores the old behaviour, in which those two ordinary events signed the user out of every device. |
 | `LOG_PATH` | leave as `../storage/logs` |
 | `STORAGE_PATH` | leave as `../storage` — **outside `api/public`, so `Alias /api` never exposes it** (question audio/images, logs — see the Apache config's comment) |
 | `LLM_PROVIDER` / `*_API_KEY` | **leave every one of these blank.** No AI generation ships in this product (hard invariant, `CLAUDE.md`) — filling one in doesn't turn a feature on, since no route calls it, but a filled-in key is one more secret that can leak for nothing. |

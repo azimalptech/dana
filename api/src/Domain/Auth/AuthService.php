@@ -128,51 +128,121 @@ final class AuthService
     public function refresh(string $refreshToken, ?string $deviceInfo = null): array
     {
         $hash = $this->tokens->hashRefreshToken($refreshToken);
+        $now = date('Y-m-d H:i:s');
 
-        // Reuse detection: a token we know but that is already revoked is
-        // the classic tell-tale of a stolen-then-replayed token (or a lost
-        // rotation race). Burn the whole family so neither the thief nor
-        // the victim keeps a live chain, and log it as a security event.
         $known = Capsule::table('refresh_tokens')->where('token_hash', $hash)->first();
 
         if ($known !== null && $known->revoked_at !== null) {
+            // A revoked token presented again is EITHER theft or, far more
+            // often, one of two innocent things: the client rotated, the
+            // response was lost on the way back, and it retried with the
+            // only token it still has; or a second browser tab is using
+            // the copy it read at page load. Both were being punished as
+            // theft — and the punishment is the whole family, so every
+            // device signs out at once. That is what "logged out again and
+            // again" was (FR-15.15): the dev database holds one admin who
+            // lost 18 live sessions in a single second, and a teacher 14.
+            //
+            // Only a token retired by ROTATION gets the benefit of the
+            // doubt, and only inside a short window. Replayed a day
+            // later it is refused, and that IS the theft signature the
+            // detection was written for.
+            $graceEnds = strtotime((string) $known->revoked_at) + $this->tokens->refreshGrace();
+
+            if ($known->revoked_reason === 'rotated' && time() <= $graceEnds) {
+                $user = User::query()->find($known->user_id);
+
+                if ($user === null || !$user->is_active) {
+                    throw ApiException::sessionExpired();
+                }
+
+                $this->log->info('refresh replayed inside the rotation grace window', [
+                    'user_id'  => $user->id,
+                    'token_id' => $known->id,
+                ]);
+
+                return $this->startSession(
+                    $user,
+                    $deviceInfo,
+                    revokeExisting: false,
+                    parentId: (int) $known->id,
+                );
+            }
+
+            // Everything the SERVER retired — a logout, the FR-12.2
+            // single-session rule, a password reset, a deletion — is a
+            // stale client, not a thief, and burning the family for one
+            // is a false positive with teeth: a student signing in on a
+            // second phone revokes the first, and the first phone's next
+            // heartbeat would then log the SECOND one out. Refuse the
+            // token, leave the rest of the family alone.
+            if ($known->revoked_reason !== null && $known->revoked_reason !== 'rotated') {
+                $this->log->info('refresh with a server-revoked token', [
+                    'user_id'  => $known->user_id,
+                    'token_id' => $known->id,
+                    'reason'   => $known->revoked_reason,
+                ]);
+
+                throw ApiException::sessionExpired();
+            }
+
+            // A rotated token replayed long after the fact, or one from
+            // before migration 015 whose reason cannot be known: the
+            // conservative reading is theft.
             Capsule::table('refresh_tokens')
                 ->where('user_id', $known->user_id)
                 ->whereNull('revoked_at')
-                ->update(['revoked_at' => date('Y-m-d H:i:s')]);
+                ->update(['revoked_at' => $now, 'revoked_reason' => 'reuse']);
 
             $this->log->warning('refresh token reuse — family revoked', [
                 'user_id'  => $known->user_id,
                 'token_id' => $known->id,
+                'reason'   => $known->revoked_reason ?? 'unknown',
+                'age'      => time() - strtotime((string) $known->revoked_at),
             ]);
 
             throw ApiException::sessionExpired();
         }
 
-        $now = date('Y-m-d H:i:s');
-
         // Rotation, made atomic: spend the token with a conditional UPDATE
         // and only proceed if THIS request is the one that flipped it.
         // Two concurrent refreshes with the same token then cannot both
-        // mint — the loser sees zero affected rows and is rejected.
+        // mint — the loser sees zero affected rows. The loser is not
+        // rejected outright any more: it re-reads the row it lost to and
+        // takes the grace path above, because a client that raced itself
+        // has done nothing wrong.
         $spent = Capsule::table('refresh_tokens')
             ->where('token_hash', $hash)
             ->whereNull('revoked_at')
             ->where('expires_at', '>', $now)
-            ->update(['revoked_at' => $now]);
-
-        if ($spent !== 1) {
-            throw ApiException::sessionExpired();
-        }
+            ->update(['revoked_at' => $now, 'revoked_reason' => 'rotated']);
 
         $row = Capsule::table('refresh_tokens')->where('token_hash', $hash)->first();
+
+        if ($spent !== 1) {
+            // Unknown token, or expired past its 30 days: nothing to do.
+            if ($row === null || strtotime((string) $row->expires_at) <= time()) {
+                throw ApiException::sessionExpired();
+            }
+
+            // Known, live a moment ago, now revoked by the request that
+            // beat us. Recurse once so the single grace decision above
+            // covers this path too rather than duplicating it here.
+            return $this->refresh($refreshToken, $deviceInfo);
+        }
+
         $user = $row === null ? null : User::query()->find($row->user_id);
 
         if ($user === null || !$user->is_active) {
             throw ApiException::sessionExpired();
         }
 
-        return $this->startSession($user, $deviceInfo, revokeExisting: false);
+        return $this->startSession(
+            $user,
+            $deviceInfo,
+            revokeExisting: false,
+            parentId: (int) $row->id,
+        );
     }
 
     public function logout(string $refreshToken): void
@@ -180,7 +250,7 @@ final class AuthService
         Capsule::table('refresh_tokens')
             ->where('token_hash', $this->tokens->hashRefreshToken($refreshToken))
             ->whereNull('revoked_at')
-            ->update(['revoked_at' => date('Y-m-d H:i:s')]);
+            ->update(['revoked_at' => date('Y-m-d H:i:s'), 'revoked_reason' => 'logout']);
     }
 
     private function assertNotThrottled(string $login, ?string $ip): void
@@ -252,8 +322,12 @@ final class AuthService
     /**
      * @return array{access_token: string, refresh_token: string, expires_in: int, user: User}
      */
-    private function startSession(User $user, ?string $deviceInfo, bool $revokeExisting = true): array
-    {
+    private function startSession(
+        User $user,
+        ?string $deviceInfo,
+        bool $revokeExisting = true,
+        ?int $parentId = null,
+    ): array {
         $now = date('Y-m-d H:i:s');
 
         // FR-12.2: a student holds one active session. Logging in
@@ -263,7 +337,7 @@ final class AuthService
             $ended = Capsule::table('refresh_tokens')
                 ->where('user_id', $user->id)
                 ->whereNull('revoked_at')
-                ->update(['revoked_at' => $now]);
+                ->update(['revoked_at' => $now, 'revoked_reason' => 'superseded']);
 
             if ($ended > 0) {
                 // Worth seeing in the log: repeated occurrences on one
@@ -279,6 +353,7 @@ final class AuthService
 
         Capsule::table('refresh_tokens')->insert([
             'user_id'     => $user->id,
+            'parent_id'   => $parentId,
             'token_hash'  => $refresh['hash'],
             'device_info' => $deviceInfo !== null ? mb_substr($deviceInfo, 0, 255) : null,
             'expires_at'  => $refresh['expires_at'],

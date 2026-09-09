@@ -215,7 +215,7 @@ final class ManagementController extends Controller
         Capsule::table('refresh_tokens')
             ->where('user_id', $admin->id)
             ->whereNull('revoked_at')
-            ->update(['revoked_at' => date('Y-m-d H:i:s')]);
+            ->update(['revoked_at' => date('Y-m-d H:i:s'), 'revoked_reason' => 'deleted']);
 
         $this->audit($request, 'admin.deleted', (int) $admin->id, 'user');
 

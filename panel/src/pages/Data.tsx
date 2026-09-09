@@ -127,11 +127,12 @@ export default function Data() {
       }
 
       // `api` speaks JSON only, so the one multipart request goes
-      // through fetch directly — same base path and Authorization
-      // header as api.ts sends.
-      const response = await fetch('/api/v1/manage/import-xlsx', {
+      // through authedFetch — same session handling as every other
+      // call, including renewal. Building the header from
+      // localStorage here is what made a long edit-then-import end
+      // in «Сессия истекла» on a live session (FR-15.15).
+      const response = await api.authedFetch('/manage/import-xlsx', {
         method: 'POST',
-        headers: { Authorization: `Bearer ${localStorage.getItem('panel_access') ?? ''}` },
         body: form,
       });
 

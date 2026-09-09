@@ -61,24 +61,63 @@ class Api {
   String? _accessToken;
   String? _refreshToken;
 
+  /// When the access token stops being accepted, in epoch milliseconds.
+  /// Zero means unknown — a session restored from a build that did not
+  /// record it, which simply falls back to renewing on the 401.
+  int _accessExpiresAt = 0;
+
   String? get accessToken => _accessToken;
   bool get isSignedIn => _accessToken != null;
+
+  /// Called once when the server has DEFINITIVELY ended the session —
+  /// the account was disabled, deleted, or signed in on another device
+  /// (FR-12.2). Without it the app kept its screens up with no usable
+  /// token and answered every tap with an error until the student
+  /// force-quit it; the honest response is to return to the login
+  /// screen. A merely unreachable server never fires this.
+  void Function()? onSessionEnded;
 
   Future<void> restore() async {
     final prefs = await SharedPreferences.getInstance();
     _accessToken = prefs.getString('access_token');
     _refreshToken = prefs.getString('refresh_token');
+    _accessExpiresAt = prefs.getInt('access_expires_at') ?? 0;
+
+    // An empty string is not null, so a session persisted by an older
+    // build with no refresh token would survive `restore` and then die
+    // at the 15-minute mark with no way to renew.
+    if ((_refreshToken ?? '').isEmpty) _refreshToken = null;
   }
 
   Future<void> _persist() async {
     final prefs = await SharedPreferences.getInstance();
-    if (_accessToken == null) {
+    if (_accessToken == null || _refreshToken == null) {
+      _accessToken = null;
+      _refreshToken = null;
+      _accessExpiresAt = 0;
       await prefs.remove('access_token');
       await prefs.remove('refresh_token');
+      await prefs.remove('access_expires_at');
     } else {
       await prefs.setString('access_token', _accessToken!);
-      await prefs.setString('refresh_token', _refreshToken ?? '');
+      await prefs.setString('refresh_token', _refreshToken!);
+      await prefs.setInt('access_expires_at', _accessExpiresAt);
     }
+  }
+
+  /// Stores a freshly issued pair. `expires_in` is seconds, and a minute
+  /// is shaved off it for clock skew between the phone and the server —
+  /// the proactive renewal in [_send] reads this, so early is safe and
+  /// late is not.
+  Future<void> _adopt(Map<String, dynamic> body) async {
+    _accessToken = body['access_token'] as String?;
+    _refreshToken = body['refresh_token'] as String?;
+
+    final seconds = (body['expires_in'] as num?)?.toInt() ?? 900;
+    _accessExpiresAt = DateTime.now().millisecondsSinceEpoch +
+        (seconds - 60).clamp(0, seconds) * 1000;
+
+    await _persist();
   }
 
   Future<Map<String, dynamic>> login(String login, String password) async {
@@ -89,9 +128,7 @@ class Api {
       authenticated: false,
     );
 
-    _accessToken = body['access_token'] as String?;
-    _refreshToken = body['refresh_token'] as String?;
-    await _persist();
+    await _adopt(body);
 
     // Clearing on logout is not enough: if the app was killed without
     // signing out, cached content from the previous student would still
@@ -199,6 +236,16 @@ class Api {
     bool authenticated = true,
     bool allowRetry = true,
   }) async {
+    // Renew before the token dies rather than after it has. Waiting for
+    // the 401 puts a failed request at the start of every fifteenth
+    // minute, and on a classroom Wi-Fi that is exactly when the renewal
+    // can fall in a dead spot — which is how sessions were being lost.
+    if (authenticated && allowRetry && _refreshToken != null && _accessExpiresAt > 0) {
+      if (DateTime.now().millisecondsSinceEpoch >= _accessExpiresAt) {
+        await _refresh();
+      }
+    }
+
     final uri = Uri.parse('$baseUrl$path');
     final headers = <String, String>{
       'Content-Type': 'application/json; charset=utf-8',
@@ -277,14 +324,25 @@ class Api {
         body: {'refresh_token': _refreshToken},
         authenticated: false,
       );
-      _accessToken = body['access_token'] as String?;
-      _refreshToken = body['refresh_token'] as String?;
-      await _persist();
+      await _adopt(body);
       return true;
-    } on ApiError {
-      _accessToken = null;
-      _refreshToken = null;
-      await _persist();
+    } on ApiError catch (e) {
+      // Only the server SAYING NO ends the session, and only 401 and 403
+      // say that. Losing the signal mid-lesson (status 0), catching the
+      // server mid-redeploy (a 502, which arrives as `bad_response`
+      // because the proxy answers HTML), or a 404 from a proxy with no
+      // backend, all say nothing about whether the refresh token is
+      // good. Throwing it away for one of those is why a student had to
+      // sign in again and again (FR-15.15) — with a 30-second heartbeat
+      // running, a single bad moment was enough. Keep the token; the
+      // next request tries again.
+      if (e.status == 401 || e.status == 403) {
+        _accessToken = null;
+        _refreshToken = null;
+        await _persist();
+        onSessionEnded?.call();
+      }
+
       return false;
     }
   }

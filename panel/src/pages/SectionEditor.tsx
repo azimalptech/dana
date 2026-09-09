@@ -233,10 +233,6 @@ function questionSummary(setType: string, p: Payload): string {
 
 /* -------------------------------------------------------- media plumbing */
 
-function panelToken(): string {
-  return localStorage.getItem('panel_access') ?? '';
-}
-
 /** `STORAGE_PATH/media/q12-stem.mp3` → the name /api/v1/media/{name} serves. */
 function mediaFileName(path: string): string {
   return path.split(/[\\/]/).pop() ?? path;
@@ -244,18 +240,18 @@ function mediaFileName(path: string): string {
 
 /**
  * Uploads ONE part's file: multipart POST to
- * /manage/media/{questionId}/{part} (part = stem|opt0..3 in the path) —
- * same Authorization pattern as the Data page import (api.ts speaks JSON
- * only).
+ * /manage/media/{questionId}/{part} (part = stem|opt0..3 in the path).
+ * `api.authedFetch` rather than `send` because this is multipart, not
+ * JSON — but it carries the same session handling, so an upload made
+ * after a long spell of editing renews instead of failing (FR-15.15).
  */
 async function uploadPartMedia(questionId: number, part: string, file: File): Promise<string | null> {
   try {
     const form = new FormData();
     form.append('file', file);
 
-    const response = await fetch(`/api/v1/manage/media/${questionId}/${part}`, {
+    const response = await api.authedFetch(`/manage/media/${questionId}/${part}`, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${panelToken()}` },
       body: form,
     });
 
@@ -284,9 +280,8 @@ function MediaPreview({ path, kind }: { path: string; kind: 'audio' | 'image' })
     setUrl(null);
     setFailed(false);
 
-    fetch(`/api/v1/media/${encodeURIComponent(mediaFileName(path))}`, {
-      headers: { Authorization: `Bearer ${panelToken()}` },
-    })
+    api
+      .authedFetch(`/media/${encodeURIComponent(mediaFileName(path))}`)
       .then((response) => (response.ok ? response.blob() : Promise.reject(new Error())))
       .then((blob) => {
         objectUrl = URL.createObjectURL(blob);

@@ -143,7 +143,7 @@ final class StaffAccountService
         Capsule::table('refresh_tokens')
             ->where('user_id', $staff->id)
             ->whereNull('revoked_at')
-            ->update(['revoked_at' => date('Y-m-d H:i:s')]);
+            ->update(['revoked_at' => date('Y-m-d H:i:s'), 'revoked_reason' => 'pw_reset']);
 
         $this->audit($scope, 'staff.password_reset', (int) $staff->id, ['role' => $staff->role]);
         $this->log->info('staff password reset', [

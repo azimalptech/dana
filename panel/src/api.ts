@@ -35,18 +35,63 @@ export interface PanelUser {
 // served by the same Apache, so a relative path is correct either way.
 const BASE = '/api/v1';
 
-let accessToken: string | null = localStorage.getItem('panel_access') ?? null;
-let refreshToken: string | null = localStorage.getItem('panel_refresh') ?? null;
+const ACCESS_KEY = 'panel_access';
+const REFRESH_KEY = 'panel_refresh';
+const EXPIRY_KEY = 'panel_access_expires';
+
+// '' is what an older build wrote when it had no refresh token, and
+// `?? null` lets it through — an empty string is not null. The session
+// then had an access token, no way to renew it, and died at 15 minutes.
+function stored(key: string): string | null {
+  return localStorage.getItem(key) || null;
+}
+
+let accessToken: string | null = stored(ACCESS_KEY);
+let refreshToken: string | null = stored(REFRESH_KEY);
+
+/** Epoch ms at which the access token stops being accepted. */
+let accessExpiresAt = Number(stored(EXPIRY_KEY) ?? 0);
 
 function persist(): void {
-  if (accessToken) {
-    localStorage.setItem('panel_access', accessToken);
-    localStorage.setItem('panel_refresh', refreshToken ?? '');
+  if (accessToken && refreshToken) {
+    localStorage.setItem(ACCESS_KEY, accessToken);
+    localStorage.setItem(REFRESH_KEY, refreshToken);
+    localStorage.setItem(EXPIRY_KEY, String(accessExpiresAt));
   } else {
-    localStorage.removeItem('panel_access');
-    localStorage.removeItem('panel_refresh');
+    accessToken = null;
+    refreshToken = null;
+    accessExpiresAt = 0;
+    localStorage.removeItem(ACCESS_KEY);
+    localStorage.removeItem(REFRESH_KEY);
+    localStorage.removeItem(EXPIRY_KEY);
   }
 }
+
+function adopt(access: string, refreshTok: string, expiresIn: number | undefined): void {
+  accessToken = access;
+  refreshToken = refreshTok;
+  // A minute of slack for clock skew between this machine and the
+  // server; the proactive refresh below leans on this number, so it is
+  // better a little early than a little late.
+  accessExpiresAt = Date.now() + Math.max(0, (expiresIn ?? 900) - 60) * 1000;
+  persist();
+}
+
+// Rotation is single-use, and every tab of the panel is a separate copy
+// of these variables over ONE localStorage. Without this listener the
+// second tab keeps using the token the first one already spent: it gets
+// a 401, refreshes with a dead token, and the server reads that as a
+// stolen token and ends every session the admin has. Adopting a
+// sibling's rotation keeps all the tabs on one live chain.
+window.addEventListener('storage', (event) => {
+  if (event.key !== ACCESS_KEY && event.key !== REFRESH_KEY && event.key !== EXPIRY_KEY) {
+    return;
+  }
+
+  accessToken = stored(ACCESS_KEY);
+  refreshToken = stored(REFRESH_KEY);
+  accessExpiresAt = Number(stored(EXPIRY_KEY) ?? 0);
+});
 
 async function send<T>(
   method: 'GET' | 'POST' | 'DELETE',
@@ -55,6 +100,16 @@ async function send<T>(
   retry = true,
 ): Promise<T> {
   let response: Response;
+
+  // Renew BEFORE the token dies rather than after. Waiting for the 401
+  // means every fifteenth minute of work starts with a failed request,
+  // and each of those is a chance to hit the network exactly when the
+  // connection is down — which is when a session used to be lost.
+  if (retry && accessToken && refreshToken && accessExpiresAt > 0 && !path.startsWith('/auth/')) {
+    if (Date.now() >= accessExpiresAt) {
+      await refresh();
+    }
+  }
 
   try {
     response = await fetch(`${BASE}${path}`, {
@@ -109,21 +164,45 @@ function refresh(): Promise<boolean> {
 }
 
 async function doRefresh(): Promise<boolean> {
+  // A sibling tab may have rotated while this one was queued. Its result
+  // is already in localStorage, so take that instead of spending our own
+  // (now stale) token on a second rotation.
+  const shared = stored(REFRESH_KEY);
+
+  if (shared && shared !== refreshToken) {
+    accessToken = stored(ACCESS_KEY);
+    refreshToken = shared;
+    accessExpiresAt = Number(stored(EXPIRY_KEY) ?? 0);
+    return accessToken !== null;
+  }
+
   try {
-    const body = await send<{ access_token: string; refresh_token: string }>(
+    const body = await send<{ access_token: string; refresh_token: string; expires_in?: number }>(
       'POST',
       '/auth/refresh',
       { refresh_token: refreshToken },
       false,
     );
-    accessToken = body.access_token;
-    refreshToken = body.refresh_token;
-    persist();
+    adopt(body.access_token, body.refresh_token, body.expires_in);
     return true;
-  } catch {
-    accessToken = null;
-    refreshToken = null;
-    persist();
+  } catch (e) {
+    // Only the server SAYING NO ends the session, and only 401 and 403
+    // say that. A dropped connection (status 0), a 502 mid-redeploy, a
+    // 5xx, or a 404 from a proxy whose backend is down all say nothing
+    // about whether the refresh token is good — throwing it away for one
+    // of those is what signed admins out "again and again". 404 is not
+    // hypothetical: with the API stopped, the dev proxy answers 404, and
+    // a "4xx means rejected" rule read that as a dead session. Keep the
+    // token and let the caller surface the error; the next request
+    // tries again.
+    const definitive = e instanceof ApiError && (e.status === 401 || e.status === 403);
+
+    if (definitive) {
+      accessToken = null;
+      refreshToken = null;
+      persist();
+    }
+
     return false;
   }
 }
@@ -136,12 +215,12 @@ export const api = {
   isSignedIn: () => accessToken !== null,
 
   async login(login: string, password: string): Promise<PanelUser> {
-    const body = await send<{ access_token: string; refresh_token: string; user: PanelUser }>(
-      'POST',
-      '/auth/login',
-      { login, password },
-      false,
-    );
+    const body = await send<{
+      access_token: string;
+      refresh_token: string;
+      expires_in?: number;
+      user: PanelUser;
+    }>('POST', '/auth/login', { login, password }, false);
 
     // Students and teachers use the mobile app; letting them in here
     // would show a UI with no endpoints they can call.
@@ -154,9 +233,7 @@ export const api = {
       );
     }
 
-    accessToken = body.access_token;
-    refreshToken = body.refresh_token;
-    persist();
+    adopt(body.access_token, body.refresh_token, body.expires_in);
     return body.user;
   },
 
@@ -169,6 +246,43 @@ export const api = {
     accessToken = null;
     refreshToken = null;
     persist();
+  },
+
+  /**
+   * For the requests `send` cannot carry: multipart uploads and media
+   * blobs, which are not JSON.
+   *
+   * They used to build `Authorization` from localStorage by hand, which
+   * meant they had no renewal at all — after fifteen minutes of editing
+   * a section with no other API traffic, the import answered «Сессия
+   * истекла. Войдите снова.» and every uploaded audio preview rendered
+   * as missing, on a session that was in fact perfectly alive. Retrying
+   * failed the same way, because nothing on those paths ever refreshed.
+   * Routing them through here gives them the renewal, the shared
+   * single-flight rotation and the one-shot replay that `send` has
+   * (FR-15.15).
+   */
+  async authedFetch(path: string, init: RequestInit = {}): Promise<Response> {
+    if (accessToken && refreshToken && accessExpiresAt > 0 && Date.now() >= accessExpiresAt) {
+      await refresh();
+    }
+
+    const fetchOnce = () =>
+      fetch(`${BASE}${path}`, {
+        ...init,
+        headers: {
+          ...(init.headers ?? {}),
+          ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+        },
+      });
+
+    const response = await fetchOnce();
+
+    if (response.status === 401 && refreshToken && (await refresh())) {
+      return fetchOnce();
+    }
+
+    return response;
   },
 
   /** A file (CSV / xlsx), not JSON. Refreshes once on a stale token so an

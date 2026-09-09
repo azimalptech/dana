@@ -127,7 +127,7 @@ final class StudentAccountService
         Capsule::table('refresh_tokens')
             ->where('user_id', $student->id)
             ->whereNull('revoked_at')
-            ->update(['revoked_at' => date('Y-m-d H:i:s')]);
+            ->update(['revoked_at' => date('Y-m-d H:i:s'), 'revoked_reason' => 'pw_reset']);
 
         $this->audit($scope, 'student.password_reset', $student->id);
         $this->log->info('student password reset', [

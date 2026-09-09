@@ -91,6 +91,21 @@ final class TokenService
         return $this->config->int('JWT_REFRESH_TTL', 2592000);
     }
 
+    /**
+     * How long a just-rotated refresh token may still be presented
+     * without being read as theft (FR-15.15).
+     *
+     * Sized for the two innocent replays it exists for — a retry after a
+     * lost response, and a second browser tab that read the token at page
+     * load — both of which happen within seconds. A minute is generous
+     * for those and useless to an attacker, who would have to replay a
+     * stolen token inside the same minute AND before its owner does.
+     */
+    public function refreshGrace(): int
+    {
+        return max(0, $this->config->int('JWT_REFRESH_GRACE', 60));
+    }
+
     private function secret(): string
     {
         return $this->config->require('JWT_SECRET');
