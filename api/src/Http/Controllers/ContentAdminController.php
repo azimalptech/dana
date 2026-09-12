@@ -316,6 +316,149 @@ final class ContentAdminController extends Controller
     }
 
     /**
+     * Reorders a child unit's typed sections (FR-15.16).
+     *
+     * The whole list arrives at once and is rewritten 1..N in one
+     * transaction. Moving one section by writing its own sort_order —
+     * which `updateSection` allows — cannot express a swap without
+     * leaving a moment where two rows share a number, and the order the
+     * student sees would depend on which id happened to be lower.
+     *
+     * `also_siblings` applies the resulting TYPE order to every other
+     * child unit under the same parent. The same three or four types
+     * repeat in every child unit, so without it a change of mind means
+     * repeating the same drag twelve times. A sibling that lacks one of
+     * the types just skips it; a type the reordered unit does not have
+     * keeps its position after the ones that were named.
+     */
+    public function reorderSections(
+        ServerRequestInterface $request,
+        ResponseInterface $response,
+        array $args,
+    ): ResponseInterface {
+        $this->requireSuperadmin($request);
+        $childUnitId = (int) $args['id'];
+
+        $childUnit = Capsule::table('unit_sections')->where('id', $childUnitId)->first();
+
+        if ($childUnit === null) {
+            throw ApiException::notFound();
+        }
+
+        $body = $this->body($request);
+        $order = array_values(array_map('intval', (array) ($body['order'] ?? [])));
+
+        $current = Capsule::table('sections')
+            ->where('unit_section_id', $childUnitId)
+            ->orderBy('sort_order')
+            ->orderBy('id')
+            ->get(['id', 'type']);
+
+        $known = $current->pluck('id')->map('intval')->all();
+
+        // The list must be exactly this child unit's sections — no
+        // repeats, nothing missing, nothing borrowed from another unit.
+        // Anything less would renumber part of the list and leave the
+        // rest colliding with it.
+        sort($known);
+        $given = $order;
+        sort($given);
+
+        if ($given !== $known) {
+            throw ApiException::validation(
+                'Bölümleriň sanawy bu bölümçä gabat gelmeýär.',
+                'Список разделов не соответствует этому подюниту — обновите страницу и повторите.'
+            );
+        }
+
+        // Nothing stops a child unit holding two Grammar sections — only
+        // the quiz is unique (createSection above) — and a sibling has no
+        // way to know which of the two a rank refers to. FIRST OCCURRENCE
+        // WINS: a later duplicate must not overwrite the rank, or the map
+        // would describe an order the source unit does not actually have
+        // and every sibling would be written to that wrong order at once.
+        $typeOrder = [];
+
+        foreach ($order as $position => $id) {
+            $type = $current->firstWhere('id', $id)->type ?? null;
+
+            if ($type !== null && !array_key_exists((string) $type, $typeOrder)) {
+                $typeOrder[(string) $type] = $position + 1;
+            }
+        }
+
+        $siblings = (bool) ($body['also_siblings'] ?? false);
+        $touched = 1;
+
+        Capsule::connection()->transaction(function () use (
+            $childUnitId, $order, $typeOrder, $siblings, $childUnit, &$touched
+        ): void {
+            foreach ($order as $position => $id) {
+                Capsule::table('sections')
+                    ->where('id', $id)
+                    ->update(['sort_order' => $position + 1, 'updated_at' => date('Y-m-d H:i:s')]);
+            }
+
+            if (!$siblings) {
+                return;
+            }
+
+            $siblingIds = Capsule::table('unit_sections')
+                ->where('unit_id', $childUnit->unit_id)
+                ->where('id', '!=', $childUnitId)
+                ->pluck('id');
+
+            foreach ($siblingIds as $siblingId) {
+                $rows = Capsule::table('sections')
+                    ->where('unit_section_id', $siblingId)
+                    ->orderBy('sort_order')
+                    ->orderBy('id')
+                    ->get(['id', 'type']);
+
+                if ($rows->isEmpty()) {
+                    continue;
+                }
+
+                // A type the reordered unit never named sorts after the
+                // ones it did, keeping its own relative position rather
+                // than being shuffled by an order that says nothing
+                // about it. Derived from the largest rank, not the count:
+                // with a duplicated type the map is shorter than the list
+                // it came from, and count() would tie an unnamed type
+                // with a named one instead of putting it last.
+                $tail = ($typeOrder === [] ? 0 : max($typeOrder)) + 1;
+                $ranked = [];
+
+                foreach ($rows as $i => $row) {
+                    $ranked[] = [
+                        'id'   => (int) $row->id,
+                        'rank' => $typeOrder[(string) $row->type] ?? $tail,
+                        'tie'  => $i,
+                    ];
+                }
+
+                usort($ranked, fn (array $a, array $b) => [$a['rank'], $a['tie']] <=> [$b['rank'], $b['tie']]);
+
+                foreach ($ranked as $position => $row) {
+                    Capsule::table('sections')
+                        ->where('id', $row['id'])
+                        ->update([
+                            'sort_order' => $position + 1,
+                            'updated_at' => date('Y-m-d H:i:s'),
+                        ]);
+                }
+
+                $touched++;
+            }
+        });
+
+        return $this->json($response, [
+            'ok'          => true,
+            'child_units' => $touched,
+        ]);
+    }
+
+    /**
      * Deleting a section cascades into its sets, questions AND the
      * students' attempts on it. Content nobody attempted goes quietly;
      * attempted content needs the caller to say force=1, and the answer

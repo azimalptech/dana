@@ -234,6 +234,8 @@ $app->group('/api/v1', function (RouteCollectorProxy $group) use ($auth): void {
         $secure->get('/manage/child-units/{id}/sections', [ContentAdminController::class, 'childUnitSections']);
         $secure->post('/manage/child-units/{id}/sections', [ContentAdminController::class, 'createSection']);
         $secure->post('/manage/typed-sections/{id}', [ContentAdminController::class, 'updateSection']);
+        // FR-15.16: the whole list at once, so a swap is atomic.
+        $secure->post('/manage/child-units/{id}/section-order', [ContentAdminController::class, 'reorderSections']);
         $secure->delete('/manage/typed-sections/{id}', [ContentAdminController::class, 'deleteSection']);
         // FR-13.20: the section IS the visibility gate.
         $secure->post('/manage/typed-sections/{id}/status', [ContentAdminController::class, 'setSectionStatus']);
