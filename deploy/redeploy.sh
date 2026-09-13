@@ -10,21 +10,61 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-echo "==> git pull"
-git pull --ff-only origin main
+# `set -e` aborts on the first failing command, which is right — a half
+# deploy must not reload — but on its own it exits with nothing but the
+# tool's own error scrolled off the top, and the site keeps serving the
+# old code with no sign anything went wrong. That is indistinguishable
+# from "the deploy worked but the feature is broken", and it cost a
+# round trip (2026-09-13: the panel bundle and the API routes were both
+# a commit behind and the deploy looked like it had succeeded).
+CURRENT="startup"
+step() { CURRENT="$1"; echo "==> $1"; }
 
-echo "==> composer install (api)"
+on_failure() {
+    echo
+    echo "!! DEPLOY FAILED during: ${CURRENT}"
+    echo "!! The error is above. Nothing was reloaded, so the site is STILL"
+    echo "!! running the previous version — it is not half-updated."
+
+    case "$CURRENT" in
+        "git pull")
+            echo "!! Usually a dirty working tree on the server. Check with:"
+            echo "!!     git -C \"\$PWD\" status --short"
+            ;;
+        "npm build (panel)")
+            echo "!! Usually the Vite build running out of memory on a small VPS"
+            echo "!! (the process is killed with no message). Check with:"
+            echo "!!     free -m ; dmesg | tail -5"
+            echo "!! If so, add swap or build with:"
+            echo "!!     NODE_OPTIONS=--max-old-space-size=512 npm run build"
+            ;;
+    esac
+
+    echo "!! Fix it, then re-run ./deploy/redeploy.sh — it is safe to repeat."
+    exit 1
+}
+
+trap on_failure ERR
+
+was="$(git rev-parse --short HEAD)"
+
+step "git pull"
+git pull --ff-only origin main
+now="$(git rev-parse --short HEAD)"
+echo "    ${was} -> ${now}"
+
+step "composer install (api)"
 cd api
 composer install --no-dev --optimize-autoloader
 cd ..
 
-echo "==> npm build (panel)"
+step "npm build (panel)"
 cd panel
 npm ci
 npm run build
 cd ..
 
-echo "==> migrations"
+step "migrations"
 cd api
 php bin/migrate.php
 cd ..
@@ -42,7 +82,7 @@ cd ..
 #
 # Whichever stack is installed gets reloaded; php-fpm is what holds the
 # opcache under nginx, Apache holds it under mod_php.
-echo "==> reloading PHP"
+step "reloading PHP"
 
 reloaded=0
 
@@ -64,4 +104,19 @@ if [ "$reloaded" -eq 0 ]; then
     exit 1
 fi
 
-echo "==> done."
+trap - ERR
+
+# What the browser should now be loading. When a change is "deployed"
+# but not visible, comparing this filename against the <script src> in
+# the page's view-source settles in one look whether the build reached
+# the web root or the browser is holding a cached index.html.
+echo "==> done. Now live: ${now}"
+
+bundle="$(ls -1 panel/dist/assets/index-*.js 2>/dev/null | head -1 || true)"
+
+if [ -n "$bundle" ]; then
+    echo "    panel bundle: $(basename "$bundle")"
+    echo "    (view-source on the panel should reference this exact file;"
+    echo "     if it names a different one, the browser cached the old page"
+    echo "     — reload with Ctrl+Shift+R.)"
+fi
