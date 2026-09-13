@@ -46,28 +46,76 @@ on_failure() {
 
 trap on_failure ERR
 
-was="$(git rev-parse --short HEAD)"
-
 step "git pull"
 git pull --ff-only origin main
 now="$(git rev-parse --short HEAD)"
-echo "    ${was} -> ${now}"
 
-step "composer install (api)"
-cd api
-composer install --no-dev --optimize-autoloader
-cd ..
+# ------------------------------------------------------- what to redo
+#
+# `npm ci` deletes node_modules and reinstalls from scratch, and
+# `composer install` walks the whole dependency tree. Together they are
+# nearly all of a deploy's wall time — and on a normal day neither has
+# anything to do, because a lock file changes maybe once a month. So
+# each step runs only when something it depends on actually moved.
+#
+# The comparison is against the last commit that deployed SUCCESSFULLY,
+# recorded in .deploy-state — not against HEAD before the pull. A run
+# that died after pulling would otherwise leave the new commit checked
+# out, and the retry would decide there was nothing to do and skip the
+# very step that failed.
+STATE=".deploy-state"
+last="$(cat "$STATE" 2>/dev/null || true)"
+full=0
 
-step "npm build (panel)"
-cd panel
-npm ci
-npm run build
-cd ..
+[ "${1:-}" = "--full" ] && full=1
 
+if [ "$full" -eq 0 ] && { [ -z "$last" ] || ! git cat-file -e "${last}^{commit}" 2>/dev/null; }; then
+    echo "    no record of the last successful deploy — doing everything"
+    full=1
+fi
+
+if [ "$full" -eq 1 ]; then
+    changed=""
+else
+    changed="$(git diff --name-only "$last" HEAD)"
+    echo "    ${last} -> ${now}"
+
+    if [ -z "$changed" ]; then
+        echo "    (already at this commit — re-running the reload only)"
+    fi
+fi
+
+# True when a path matching $1 changed, or when everything is being redone.
+touched() {
+    [ "$full" -eq 1 ] && return 0
+    printf '%s\n' "$changed" | grep -q "$1"
+}
+
+if touched '^api/composer\.\(json\|lock\)$' || [ ! -d api/vendor ]; then
+    step "composer install (api)"
+    (cd api && composer install --no-dev --optimize-autoloader)
+else
+    echo "==> composer install (api) — skipped, dependencies unchanged"
+fi
+
+if touched '^panel/package\(-lock\)\?\.json$' || [ ! -d panel/node_modules ]; then
+    step "npm ci (panel)"
+    (cd panel && npm ci)
+else
+    echo "==> npm ci (panel) — skipped, dependencies unchanged"
+fi
+
+if touched '^panel/' || [ ! -d panel/dist ]; then
+    step "npm build (panel)"
+    (cd panel && npm run build)
+else
+    echo "==> npm build (panel) — skipped, no panel change"
+fi
+
+# Cheap and idempotent, and getting this wrong means the API runs against
+# a schema it does not expect — so it is checked every time.
 step "migrations"
-cd api
-php bin/migrate.php
-cd ..
+(cd api && php bin/migrate.php)
 
 # ---------------------------------------------------------------- reload
 #
@@ -105,6 +153,10 @@ if [ "$reloaded" -eq 0 ]; then
 fi
 
 trap - ERR
+
+# Only now, with every step past: this is what the skip logic above
+# compares against next time, so a failed deploy must never write it.
+git rev-parse HEAD > "$STATE"
 
 # What the browser should now be loading. When a change is "deployed"
 # but not visible, comparing this filename against the <script src> in

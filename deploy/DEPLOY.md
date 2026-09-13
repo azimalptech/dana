@@ -304,11 +304,39 @@ files on disk while every request keeps running the OLD code, silently and
 with nothing in any log. That is exactly how an importer fix once landed
 on disk, got re-run, and appeared not to work at all.
 
-The script: `git pull` → `composer install` → `npm run build` →
-`php bin/migrate.php` → reload php-fpm / nginx / apache (whichever is
-installed). All are safe to re-run — migrations track
-what's applied in a `migrations` table (`api/bin/migrate.php`), and
-nothing in the script touches `api/.env` or `storage/`.
+The script: `git pull` → `composer install` → `npm ci` → `npm run build`
+→ `php bin/migrate.php` → reload php-fpm / nginx / apache (whichever is
+installed). All are safe to re-run — migrations track what's applied in a
+`migrations` table (`api/bin/migrate.php`), and nothing in the script
+touches `api/.env` or `storage/`.
+
+### It only redoes what changed
+
+`npm ci` and `composer install` are nearly all of a deploy's wall time and
+on a normal day have nothing to do — a lock file changes maybe once a
+month. So each step runs only when a file it depends on actually moved
+between the last successful deploy and this one:
+
+| Step | Runs when |
+| --- | --- |
+| `composer install` | `api/composer.json` or `api/composer.lock` changed, or `api/vendor/` is missing |
+| `npm ci` | `panel/package.json` or `panel/package-lock.json` changed, or `panel/node_modules/` is missing |
+| `npm run build` | anything under `panel/` changed, or `panel/dist/` is missing |
+| migrations, reload | always — both are seconds, and skipping either is how a deploy silently does nothing |
+
+An API-only change is therefore `git pull` → migrate → reload: a couple of
+seconds. Force the long version with `./deploy/redeploy.sh --full`.
+
+The comparison is against the last commit that deployed **successfully**,
+recorded in `.deploy-state` (gitignored) and written only after the reload.
+A run that dies partway leaves it pointing at the old commit, so the retry
+redoes the step that failed instead of deciding there is nothing to do.
+
+On failure the script names the step and says plainly that nothing was
+reloaded. On success it prints the commit now live and the built panel
+bundle's filename — if the browser's view-source names a different
+`index-*.js`, the build did land and the browser is holding a cached page
+(Ctrl+Shift+R).
 
 ---
 

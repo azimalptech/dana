@@ -37,3 +37,6 @@ desktop.ini
 # here too since a debug APK build can also land under android/app/build
 app/android/.gradle/
 app/android/app/build/
+
+# Written by deploy/redeploy.sh: the last commit that deployed cleanly.
+.deploy-state
