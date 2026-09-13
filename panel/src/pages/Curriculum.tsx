@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 
 import { ApiError, api } from '../api';
 import { useAsync } from '../hooks';
+import { useReorder } from '../reorder';
 
 interface SectionRow {
   id: number;
@@ -96,6 +97,24 @@ export default function Curriculum() {
     }
   }
 
+  // FR-15.17: two lists, one interaction — see src/reorder.ts.
+  const unitOrder = useReorder<UnitRow>({
+    itemsOf: (levelId) => tree.data?.levels.find((l) => l.id === levelId)?.units ?? null,
+    save: (levelId, order) => api.post(`/manage/levels/${levelId}/unit-order`, { order }),
+    onSaved: () => tree.reload(),
+    onError: setError,
+    deps: [tree.data],
+  });
+
+  const childOrder = useReorder<SectionRow>({
+    itemsOf: (unitId) =>
+      tree.data?.levels.flatMap((l) => l.units).find((u) => u.id === unitId)?.sections ?? null,
+    save: (unitId, order) => api.post(`/manage/units/${unitId}/child-order`, { order }),
+    onSaved: () => tree.reload(),
+    onError: setError,
+    deps: [tree.data],
+  });
+
   const levels = useMemo(() => tree.data?.levels ?? [], [tree.data]);
   const level = levels.find((l) => l.id === levelId) ?? levels[0] ?? null;
   const unit = level?.units.find((u) => u.id === openUnit) ?? null;
@@ -125,17 +144,48 @@ export default function Curriculum() {
           </div>
         )}
 
-        {unit.sections.map((section) => (
+        {unit.sections.length > 1 && (
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12 }}>
+            <button
+              className={childOrder.isOpen(unit.id) ? 'btn btn-sm' : 'btn btn-ghost btn-sm'}
+              onClick={() =>
+                childOrder.isOpen(unit.id)
+                  ? childOrder.cancel()
+                  : childOrder.start(unit.id, unit.sections)
+              }
+            >
+              {childOrder.isOpen(unit.id) ? 'Отменить перестановку' : 'Изменить порядок'}
+            </button>
+
+            {childOrder.isOpen(unit.id) && (
+              <>
+                <button
+                  className="btn btn-sm"
+                  disabled={!childOrder.changed() || childOrder.saving}
+                  onClick={() => void childOrder.commit()}
+                >
+                  {childOrder.saving ? 'Сохранение…' : 'Сохранить порядок'}
+                </button>
+                <span className="muted" style={{ fontSize: 13 }}>
+                  Перетащите карточку мышью. Ученик увидит подюниты в этом порядке.
+                </span>
+              </>
+            )}
+          </div>
+        )}
+
+        {childOrder.apply(unit.sections).map((section, index) => (
           <SectionCard
             key={section.id}
             unitNumber={unit.number}
             section={section}
             run={run}
             remove={remove}
+            drag={childOrder.isOpen(unit.id) ? childOrder.rowProps(index) : null}
           />
         ))}
 
-        <AddSection unitId={unit.id} run={run} />
+        {!childOrder.isOpen(unit.id) && <AddSection unitId={unit.id} run={run} />}
       </>
     );
   }
@@ -234,7 +284,15 @@ export default function Curriculum() {
         </div>
       )}
 
-      {level && <UnitsCard level={level} run={run} remove={remove} onOpen={setOpenUnit} />}
+      {level && (
+        <UnitsCard
+          level={level}
+          run={run}
+          remove={remove}
+          onOpen={setOpenUnit}
+          order={unitOrder}
+        />
+      )}
     </>
   );
 }
@@ -248,11 +306,13 @@ function UnitsCard({
   run,
   remove,
   onOpen,
+  order,
 }: {
   level: LevelRow;
   run: (a: () => Promise<unknown>) => Promise<void>;
   remove: Remove;
   onOpen: (id: number) => void;
+  order: ReturnType<typeof useReorder<UnitRow>>;
 }) {
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState('');
@@ -264,12 +324,25 @@ function UnitsCard({
         <h2>
           Юниты {level.units.length > 0 && <span className="muted">· {level.units.length}</span>}
         </h2>
-        <button
-          className={adding ? 'btn btn-ghost btn-sm' : 'btn btn-sm'}
-          onClick={() => setAdding(!adding)}
-        >
-          {adding ? 'Отмена' : '+ Юнит'}
-        </button>
+        <span style={{ whiteSpace: 'nowrap', display: 'flex', gap: 8 }}>
+          {level.units.length > 1 && (
+            <button
+              className={order.isOpen(level.id) ? 'btn btn-sm' : 'btn btn-ghost btn-sm'}
+              onClick={() =>
+                order.isOpen(level.id) ? order.cancel() : order.start(level.id, level.units)
+              }
+            >
+              {order.isOpen(level.id) ? 'Отменить перестановку' : 'Изменить порядок'}
+            </button>
+          )}
+          <button
+            className={adding ? 'btn btn-ghost btn-sm' : 'btn btn-sm'}
+            disabled={order.isOpen(level.id)}
+            onClick={() => setAdding(!adding)}
+          >
+            {adding ? 'Отмена' : '+ Юнит'}
+          </button>
+        </span>
       </div>
 
       {adding && (
@@ -330,11 +403,36 @@ function UnitsCard({
             </tr>
           </thead>
           <tbody>
-            {level.units.map((unit) => (
-              <UnitRowView key={unit.id} unit={unit} run={run} remove={remove} onOpen={onOpen} />
+            {order.apply(level.units).map((unit, index) => (
+              <UnitRowView
+                key={unit.id}
+                unit={unit}
+                run={run}
+                remove={remove}
+                onOpen={onOpen}
+                drag={order.isOpen(level.id) ? order.rowProps(index) : null}
+              />
             ))}
           </tbody>
         </table>
+      )}
+
+      {order.isOpen(level.id) && (
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginTop: 12 }}>
+          <button
+            className="btn btn-sm"
+            disabled={!order.changed() || order.saving}
+            onClick={() => void order.commit()}
+          >
+            {order.saving ? 'Сохранение…' : 'Сохранить порядок'}
+          </button>
+          <button className="btn btn-ghost btn-sm" onClick={order.cancel}>
+            Отмена
+          </button>
+          <span className="muted" style={{ fontSize: 13 }}>
+            Перетащите строку мышью. Ученик увидит юниты в этом порядке.
+          </span>
+        </div>
       )}
     </div>
   );
@@ -346,11 +444,14 @@ function UnitRowView({
   run,
   remove,
   onOpen,
+  drag,
 }: {
   unit: UnitRow;
   run: (a: () => Promise<unknown>) => Promise<void>;
   remove: Remove;
   onOpen: (id: number) => void;
+  /** Drag handlers while the level is being reordered, else null. */
+  drag: Record<string, unknown> | null;
 }) {
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(unit.name ?? '');
@@ -393,16 +494,25 @@ function UnitRowView({
     );
   }
 
+  // Opening the unit is the row's normal click. While the level is
+  // being reordered that would fire on every drag, so it is off.
+  const open = drag ? undefined : () => onOpen(unit.id);
+
   return (
-    <tr key={unit.id} className="row-link" onClick={() => onOpen(unit.id)}>
+    <tr key={unit.id} className={drag ? undefined : 'row-link'} onClick={open} {...(drag ?? {})}>
       <td>
-        <button className="link" onClick={() => onOpen(unit.id)}>
-          {unitName(unit)}
-        </button>
+        {drag && <span className="muted" title="Перетащите строку">⠿ </span>}
+        {drag ? (
+          unitName(unit)
+        ) : (
+          <button className="link" onClick={open}>
+            {unitName(unit)}
+          </button>
+        )}
       </td>
       <td className="muted">{unit.title ?? '—'}</td>
       <td>{unit.sections.length}</td>
-      <td style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>
+      <td style={{ whiteSpace: 'nowrap', textAlign: 'right', visibility: drag ? 'hidden' : 'visible' }}>
         <button
           className="btn btn-ghost btn-sm"
           onClick={(e) => {
@@ -439,11 +549,14 @@ function SectionCard({
   section,
   run,
   remove,
+  drag,
 }: {
   unitNumber: number;
   section: SectionRow;
   run: (a: () => Promise<unknown>) => Promise<void>;
   remove: Remove;
+  /** Drag handlers while the unit is being reordered, else null. */
+  drag: Record<string, unknown> | null;
 }) {
   const [editing, setEditing] = useState(false);
   const [code, setCode] = useState(section.code);
@@ -451,13 +564,17 @@ function SectionCard({
   const [title, setTitle] = useState(section.title ?? '');
 
   return (
-    <div className="card">
+    <div className="card" {...(drag ?? {})}>
       <div className="card-head">
         <h2 style={{ margin: 0 }}>
+          {drag && <span className="muted" title="Перетащите карточку">⠿ </span>}
           {sectionName(unitNumber, section)}{' '}
           {section.title && <span className="muted">— {section.title}</span>}
         </h2>
-        <span style={{ whiteSpace: 'nowrap' }}>
+        {/* While dragging, editing and deleting are out of the way:
+            the whole card is the drag handle, so a press on a button
+            is as likely to start a drag as to click. */}
+        <span style={{ whiteSpace: 'nowrap', visibility: drag ? 'hidden' : 'visible' }}>
           <button className="btn btn-ghost btn-sm" onClick={() => setEditing(!editing)}>
             {editing ? 'Отмена' : 'Изменить'}
           </button>{' '}

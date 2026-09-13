@@ -880,7 +880,15 @@ final class ManagementController extends Controller
             ->join('units as u', 'u.id', '=', 'cu.unit_id')
             ->join('levels as l', 'l.id', '=', 'u.level_id')
             ->orderBy('l.sort_order')
-            ->orderBy('cu.level_position')
+            // The SAME keys the curriculum page and the student's
+            // outline sort by (FR-15.17). Sorting by level_position
+            // here instead let this page disagree with both: it is a
+            // level-wide teaching order, maintained separately, and
+            // a hand-set display order had no way to reach it.
+            ->orderBy('u.sort_order')
+            ->orderBy('u.id')
+            ->orderBy('cu.sort_order')
+            ->orderBy('cu.id')
             ->select([
                 'cu.id', 'cu.code', 'cu.label as cu_label', 'cu.title',
                 'u.id as unit_id', 'u.number as unit_number', 'u.name as unit_name',

@@ -216,6 +216,10 @@ $app->group('/api/v1', function (RouteCollectorProxy $group) use ($auth): void {
         $secure->post('/manage/units/{id}', [CurriculumController::class, 'updateUnit']);
         $secure->post('/manage/sections', [CurriculumController::class, 'createSection']);
         $secure->post('/manage/sections/{id}', [CurriculumController::class, 'updateChildUnit']);
+        // FR-15.17: the whole list at once, same contract as the
+        // typed-section order below.
+        $secure->post('/manage/levels/{id}/unit-order', [CurriculumController::class, 'reorderUnits']);
+        $secure->post('/manage/units/{id}/child-order', [CurriculumController::class, 'reorderChildUnits']);
         // Structure deletes, superadmin only. Attempted content answers
         // 409 attempts_exist until repeated with ?force=1 — the same
         // contract as DELETE /manage/typed-sections/{id}. A level with

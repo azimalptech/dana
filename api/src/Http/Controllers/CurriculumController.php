@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Dana\Http\Controllers;
 
+use Dana\Domain\Content\ManualOrder;
 use Dana\Domain\Models\User;
 use Dana\Http\ApiException;
 use Illuminate\Database\Capsule\Manager as Capsule;
@@ -264,6 +265,97 @@ final class CurriculumController extends Controller
         ]);
 
         return $this->json($response, ['ok' => true]);
+    }
+
+    // ------------------------------------------------------------ ordering
+
+    /**
+     * POST /manage/levels/{id}/unit-order — the order the units of one
+     * level are taught in (FR-15.17).
+     *
+     * `units.number` is NOT touched. It stopped being a display value
+     * when naming went manual (FR-15.7) but it is still the xlsx
+     * import's join key, so renumbering it here would silently re-point
+     * every future upload at the wrong unit.
+     */
+    public function reorderUnits(
+        ServerRequestInterface $request,
+        ResponseInterface $response,
+        array $args,
+    ): ResponseInterface {
+        $this->requireSuperadmin($request);
+        $levelId = (int) $args['id'];
+
+        if (!Capsule::table('levels')->where('id', $levelId)->exists()) {
+            throw ApiException::notFound();
+        }
+
+        $order = self::wantedOrder($this->body($request));
+
+        ManualOrder::assertComplete(
+            Capsule::table('units')->where('level_id', $levelId)->pluck('id')->map('intval')->all(),
+            $order,
+            'Bölümleriň sanawy bu derejä gabat gelmeýär.',
+            'Список юнитов не соответствует этому уровню — обновите страницу и повторите.'
+        );
+
+        Capsule::connection()->transaction(function () use ($levelId, $order): void {
+            ManualOrder::renumber('units', $order);
+            ManualOrder::rebuildLevelPositions($levelId);
+        });
+
+        return $this->json($response, ['ok' => true]);
+    }
+
+    /**
+     * POST /manage/units/{id}/child-order — the order of one unit's child
+     * units (FR-15.17). `unit_sections.code` is the xlsx join key and is
+     * left alone, exactly as `units.number` is above.
+     */
+    public function reorderChildUnits(
+        ServerRequestInterface $request,
+        ResponseInterface $response,
+        array $args,
+    ): ResponseInterface {
+        $this->requireSuperadmin($request);
+        $unitId = (int) $args['id'];
+
+        $unit = Capsule::table('units')->where('id', $unitId)->first();
+
+        if ($unit === null) {
+            throw ApiException::notFound();
+        }
+
+        $order = self::wantedOrder($this->body($request));
+
+        ManualOrder::assertComplete(
+            Capsule::table('unit_sections')->where('unit_id', $unitId)->pluck('id')->map('intval')->all(),
+            $order,
+            'Bölümçeleriň sanawy bu bölüme gabat gelmeýär.',
+            'Список подюнитов не соответствует этому юниту — обновите страницу и повторите.'
+        );
+
+        Capsule::connection()->transaction(function () use ($unit, $order): void {
+            ManualOrder::renumber('unit_sections', $order);
+            ManualOrder::rebuildLevelPositions((int) $unit->level_id);
+        });
+
+        return $this->json($response, ['ok' => true]);
+    }
+
+    /**
+     * The `order` array, as ints. A body whose `order` is absent or not a
+     * list yields an empty array, which then fails the completeness check
+     * with the same message as any other wrong list — there is no shape
+     * of request that renumbers only part of a parent.
+     *
+     * @return int[]
+     */
+    private static function wantedOrder(array $body): array
+    {
+        $order = $body['order'] ?? null;
+
+        return is_array($order) ? array_values(array_map('intval', $order)) : [];
     }
 
     // ----------------------------------------------------------- deletes
