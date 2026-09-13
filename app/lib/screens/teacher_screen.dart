@@ -1109,7 +1109,6 @@ class _UnitProgressRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final l = AppState.instance.l;
     // The design paints the unit currently being worked on brand.
     final active = unit['state'] == 'in_progress';
     final average = (unit['average'] as num?)?.round();
@@ -1144,7 +1143,7 @@ class _UnitProgressRow extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    '${l.t('unit')} ${unit['label']}',
+                    '${unit['label']}',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
@@ -1290,7 +1289,7 @@ class TeacherUnitProgressScreen extends StatelessWidget {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    '${l.t('unit')} ${unit['label'] ?? label}',
+                                    '${unit['label'] ?? label}',
                                     style: const TextStyle(
                                       fontSize: 16,
                                       fontWeight: FontWeight.w700,
@@ -1491,7 +1490,7 @@ class StudentAttemptsScreen extends StatelessWidget {
       backgroundColor: DanaColors.surface,
       appBar: AppBar(
         title: Text(
-          filterLabel == null ? name : '$name · ${l.t('unit')} $filterLabel',
+          filterLabel == null ? name : '$name · $filterLabel',
         ),
         backgroundColor: DanaColors.brand,
         foregroundColor: Colors.white,
@@ -1556,7 +1555,7 @@ class _AttemptCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      '${l.t('unit')} ${attempt['label']}'
+                      '${attempt['label']}'
                       '${title.isEmpty ? '' : ' · $title'}',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,

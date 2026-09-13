@@ -37,6 +37,15 @@ Flutter mobile app (students + teachers) + PHP/MySQL API + React admin panels.
    is authored manually by the superadmin, 1:1 from the workbook, and
    ships through the draft → published gate. No LLM key ships anywhere
    in the product.
+   *Narrow exception, FR-15.18 (client, 2026-09-13):* a question's
+   media may be RENDERED from text the author already wrote — the
+   payload's `audio_note` spoken, the `image_note` drawn. No model
+   writes a question, an option, an answer or an explanation, so the
+   content is unchanged either way. It is superadmin-only, server-
+   side, and dormant unless the OPERATOR puts `GEMINI_API_KEY` in
+   their own `api/.env` — the shipped product still carries no key.
+   Two things about it are still the client's to answer before it is
+   switched on: Q-52 (Google's under-18 term) and Q-53 (billing).
 7. Student accounts are created by the **centre admin** (FR-1.4,
    2026-08-07). Teachers read their classes and reveal/reset passwords;
    they never create accounts.

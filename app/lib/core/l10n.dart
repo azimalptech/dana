@@ -58,7 +58,9 @@ class L {
       'en': '{n}/{m} Units completed',
     },
     'overall': {'tk': 'Umumy', 'ru': 'Общий', 'en': 'Overall'},
-    'unit': {'tk': 'Bölüm', 'ru': 'Юнит', 'en': 'Unit'},
+    // 'unit' removed (FR-15.19): a child unit's label is its whole
+    // name, so nothing prefixes it any more. 'unit_quiz' below is a
+    // different string and stays.
     'exercise': {'tk': 'Maşk', 'ru': 'Упражнение', 'en': 'Exercise'},
     'exercises': {'tk': 'Maşklar', 'ru': 'Упражнения', 'en': 'Exercises'},
     'vocabulary': {'tk': 'Sözlük', 'ru': 'Словарь', 'en': 'Vocabulary'},

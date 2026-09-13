@@ -98,7 +98,6 @@ class _UnitVocabularyScreenState extends State<UnitVocabularyScreen>
                     SizedBox(
                       width: 36,
                       child: Text(
-                        '${l.t('unit')} '
                         '${widget.unitLabel ?? widget.unitNumber}',
                         textAlign: TextAlign.right,
                         maxLines: 1,
@@ -599,7 +598,7 @@ Future<void> showWordCard(BuildContext context, Map<String, dynamic> item) {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            '${l.t('unit')} $unitLabel',
+                            unitLabel,
                             style: const TextStyle(
                               fontSize: 14,
                               fontWeight: FontWeight.w600,

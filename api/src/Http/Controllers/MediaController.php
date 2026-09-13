@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Dana\Http\Controllers;
 
+use Dana\Domain\Media\Audio;
+use Dana\Domain\Media\GeminiMedia;
 use Dana\Domain\Models\Question;
 use Dana\Domain\Models\User;
 use Dana\Http\ApiException;
@@ -43,8 +45,10 @@ final class MediaController extends Controller
         'webp' => 'image/webp', 'gif' => 'image/gif',
     ];
 
-    public function __construct(private readonly MediaStorage $storage)
-    {
+    public function __construct(
+        private readonly MediaStorage $storage,
+        private readonly GeminiMedia $gemini,
+    ) {
     }
 
     /** GET /media/{name} — authenticated streaming of a stored file. */
@@ -117,6 +121,82 @@ final class MediaController extends Controller
 
         $file->moveTo($dir . '/' . $name);
 
+        return $this->json($response, $this->attach($question, $payload, $part, $name));
+    }
+
+    /**
+     * POST /manage/media/{questionId}/{part}/generate — the part's own
+     * note, spoken or drawn (FR-15.18).
+     *
+     * A sibling of upload() rather than a separate controller, because
+     * everything after "obtain the bytes" is identical: the same naming,
+     * the same stale-extension sweep, the same payload write, the same
+     * servability answer. The only difference is where the bytes come
+     * from — an operator's file, or the note the operator already typed.
+     */
+    public function generate(
+        ServerRequestInterface $request,
+        ResponseInterface $response,
+        array $args,
+    ): ResponseInterface {
+        $this->scope($request)->requireRole(User::ROLE_SUPERADMIN);
+
+        [$question, $payload, $part, $kind] = $this->locate($args);
+
+        $node = $this->partNode($payload, $part);
+        $note = (string) ($kind === 'audio' ? ($node['audio_note'] ?? '') : ($node['image_note'] ?? ''));
+
+        $made = $kind === 'audio'
+            ? $this->gemini->speech($note)
+            : $this->gemini->image($note);
+
+        $name = $this->write($question, $part, $kind, $made['bytes'], $made['ext']);
+
+        return $this->json($response, $this->attach($question, $payload, $part, $name) + [
+            'note'   => GeminiMedia::cleanNote($note),
+            'source' => 'gemini',
+        ]);
+    }
+
+    /**
+     * Writes the bytes as this part's file and removes any earlier file
+     * for the part under a different extension, so switching between an
+     * uploaded mp3 and a generated wav never leaves two.
+     */
+    private function write(object $question, string $part, string $kind, string $bytes, string $ext): string
+    {
+        $dir = $this->storage->dir();
+
+        if (!is_dir($dir) && !mkdir($dir, 0775, true) && !is_dir($dir)) {
+            throw ApiException::validation('Media bukjasy döredilmedi.', 'Не удалось создать папку media.');
+        }
+
+        foreach (self::EXTENSIONS[$kind] as $other) {
+            $stale = $dir . '/q' . (int) $question->id . '-' . $part . '.' . $other;
+
+            if ($other !== $ext && is_file($stale)) {
+                @unlink($stale);
+            }
+        }
+
+        $name = 'q' . (int) $question->id . '-' . $part . '.' . $ext;
+
+        if (file_put_contents($dir . '/' . $name, $bytes) === false) {
+            throw ApiException::validation('Faýl ýazylmady.', 'Не удалось сохранить файл.');
+        }
+
+        return $name;
+    }
+
+    /**
+     * Points the payload part at the stored file and reports whether the
+     * question has become servable (§3).
+     *
+     * @param array<string, mixed> $payload
+     * @return array<string, mixed>
+     */
+    private function attach(object $question, array $payload, string $part, string $name): array
+    {
         $relative = 'media/' . $name;
         $payload = $this->setMediaPath($payload, $part, $relative);
 
@@ -125,11 +205,11 @@ final class MediaController extends Controller
             'updated_at' => date('Y-m-d H:i:s'),
         ]);
 
-        return $this->json($response, [
+        return [
             'media_path' => $relative,
             'url'        => Question::MEDIA_URL_PREFIX . $name,
             'servable'   => Question::payloadServable($payload),
-        ]);
+        ];
     }
 
     /** DELETE /manage/media/{questionId}/{part} — clear a part's file. */

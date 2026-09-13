@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 
 import { ApiError, api } from '../api';
 import { useAsync } from '../hooks';
@@ -91,7 +91,17 @@ interface SectionRow {
 interface ChildUnitData {
   child_unit: { id: number; label: string; title: string | null; level: string };
   sections: SectionRow[];
+  /** FR-15.18: whether the server has a Gemini key at all. */
+  can_generate_media?: boolean;
 }
+
+/**
+ * FR-15.18. A context rather than a prop because the flag is read
+ * four levels down, in the per-part media strip, and threading one
+ * boolean through every component between here and there would say
+ * nothing about any of them.
+ */
+const CanGenerateMedia = createContext(false);
 
 const SECTION_TYPE_LABEL: Record<string, string> = {
   grammar: 'Грамматика',
@@ -326,6 +336,7 @@ function PartMedia({
   part: McPart;
   run: (a: () => Promise<unknown>) => Promise<void>;
 }) {
+  const canGenerate = useContext(CanGenerateMedia);
   const fileRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -349,6 +360,25 @@ function PartMedia({
       setError(failure);
     } else {
       await run(() => Promise.resolve());
+    }
+  }
+
+  /**
+   * FR-15.18: the note beside this button IS the prompt — the
+   * server takes the part's own audio_note/image_note and sends
+   * nothing else, so what you see is what gets spoken or drawn.
+   */
+  async function generate() {
+    setBusy(true);
+    setError(null);
+
+    try {
+      await api.post(`/manage/media/${questionId}/${encodeURIComponent(partKey)}/generate`);
+      await run(() => Promise.resolve());
+    } catch (e: unknown) {
+      setError(e instanceof ApiError ? e.message : 'Не удалось сгенерировать.');
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -396,6 +426,21 @@ function PartMedia({
           <button className="btn btn-sm" disabled={busy} onClick={() => void upload()}>
             {busy ? 'Загрузка…' : 'Загрузить'}
           </button>
+
+          {canGenerate && (
+            <button
+              className="btn btn-ghost btn-sm"
+              disabled={busy}
+              title={`Сгенерировать по тексту «${note}»`}
+              onClick={() => void generate()}
+            >
+              {busy
+                ? '…'
+                : kind === 'audio'
+                  ? 'Озвучить'
+                  : 'Нарисовать'}
+            </button>
+          )}
         </>
       )}
 
@@ -439,7 +484,7 @@ export default function SectionEditor({
   const hasQuiz = sections.some((s) => s.type === 'quiz');
 
   return (
-    <>
+    <CanGenerateMedia.Provider value={state.data.can_generate_media === true}>
       <button className="btn btn-ghost btn-sm" onClick={onBack} style={{ marginBottom: 16 }}>
         ← Ко всем юнитам
       </button>
@@ -471,7 +516,7 @@ export default function SectionEditor({
       ))}
 
       <AddSection childUnitId={childUnitId} hasQuiz={hasQuiz} run={run} />
-    </>
+    </CanGenerateMedia.Provider>
   );
 }
 

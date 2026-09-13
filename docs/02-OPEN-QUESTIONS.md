@@ -178,6 +178,17 @@ where the design shows something the brief does not, or vice versa.
 
 **✅ Confirmed by the design** — no action needed: vocabulary carries IPA (`/ˈfæm.ɪ.li/`) and audio playback, matching `vocabulary_items`; fill-in-the-blank uses a tapped word pool, matching FR-4.19; the leaderboard is a distinct screen; profile has no password-change control, matching FR-1.6.
 
+## J. Media generation (2026-09-13)
+
+**🟡 Q-52 — Does Google's under-18 term allow this at all?** The Gemini API terms say the caller "will not use the Services as part of a website, application, or other service … that is directed towards or is likely to be accessed by individuals under the age of 18." Dana is sold to language centres and a large share of the students are minors; the clause sits in the general Age Requirements section and is not lifted by paying.
+→ *Built on this reading:* generation happens **only in the superadmin panel**, an adult professional tool. The server calls Google, stores the resulting file, and the phone app fetches a static file it has no idea was generated — no student device ever reaches Google. That is a defensible reading of the clause but **not a documented exemption**, and it is the client's legal call, not ours. FR-15.18 ships inert (no key, no buttons) precisely so this can be answered before anything is switched on.
+
+**🟡 Q-53 — Who funds the Google billing account?** Image models have **no free tier** — a billing account is required from the first call — and the free TTS tier trains on submitted data, which for Dana is the client's own workbook text. Paid tier is therefore the only appropriate one, and it needs a card payable in USD from Turkmenistan.
+→ *Recommend:* the centre owns the account and the key lives only in `api/.env` on the authoring machine. Until one exists, FR-15.18 stays dormant and everything is uploaded by hand exactly as today.
+
+**🟢 Q-54 — Is a synthetic voice acceptable for listening content?** Gemini TTS has no Turkmen voice (English and Russian only), gives no accent parameter, and offers no guarantee that the same word regenerates identically. FR-15.18 pins the accent in a stored directive and treats each clip as generated once and kept, but the pedagogical question — is a machine voice good enough for a listening exam — is the client's.
+→ *Recommend:* generate, listen, and re-record by hand anything that does not pass. The upload path is untouched and always wins.
+
 ---
 
 ## Answered

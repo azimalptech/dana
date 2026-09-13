@@ -77,6 +77,14 @@ $container->set(\Dana\Support\Media\MediaStorage::class, fn (Container $c) => \D
     $c->get(Config::class),
     $basePath,
 ));
+// FR-15.18: renders a question's own note as speech or a picture.
+// Inert without GEMINI_API_KEY, which is how the product ships. Its
+// own channel: these are billed calls to a third party and belong in
+// a log someone can audit, not among stack traces.
+$container->set(\Dana\Domain\Media\GeminiMedia::class, fn (Container $c) => new \Dana\Domain\Media\GeminiMedia(
+    \Dana\Domain\Media\GeminiSettings::fromConfig($c->get(Config::class)),
+    LoggerFactory::get($config, 'worker'),
+));
 $container->set(CourseClosureService::class, fn (Container $c) => new CourseClosureService(
     $c->get(StatsService::class),
     // Course closure destroys data permanently — it belongs in the
@@ -277,6 +285,9 @@ $app->group('/api/v1', function (RouteCollectorProxy $group) use ($auth): void {
         $secure->get('/media/{name}', [\Dana\Http\Controllers\MediaController::class, 'serve']);
         $secure->post('/manage/media/{questionId}/{part}', [\Dana\Http\Controllers\MediaController::class, 'upload']);
         $secure->delete('/manage/media/{questionId}/{part}', [\Dana\Http\Controllers\MediaController::class, 'delete']);
+        // FR-15.18: the part's own note, spoken or drawn. Superadmin
+        // only, and 400 "not configured" unless api/.env carries a key.
+        $secure->post('/manage/media/{questionId}/{part}/generate', [\Dana\Http\Controllers\MediaController::class, 'generate']);
 
         // FR-14.3: the superadmin forces a fresh fixed quiz draw.
         $secure->post('/manage/quiz/{childUnitId}/redraw', [\Dana\Http\Controllers\QuizController::class, 'redraw']);

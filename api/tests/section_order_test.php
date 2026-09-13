@@ -126,7 +126,13 @@ function orderOf(int $childId): array
 [$childC, $c] = makeChild((int) $unitId, 'C', 3, ['grammar', 'vocabulary']);
 
 $controller = new ContentAdminController(
-    new Dana\Domain\Progress\QuizDrawService()
+    new Dana\Domain\Progress\QuizDrawService(),
+    // FR-15.18 added a generator to the constructor; ordering never
+    // touches it, and one with no key cannot call out.
+    new Dana\Domain\Media\GeminiMedia(
+        new Dana\Domain\Media\GeminiSettings(apiKey: null),
+        new Psr\Log\NullLogger()
+    )
 );
 
 /** Calls the endpoint the way the router would, superadmin scope included. */

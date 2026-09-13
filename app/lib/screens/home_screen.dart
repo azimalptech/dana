@@ -291,7 +291,9 @@ class _FeaturedUnit extends StatelessWidget {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              '${l.t('unit')} ${child['label']}',
+                              // FR-15.7/FR-15.19: the label IS the name,
+                              // verbatim. No "Unit" in front of it.
+                              '${child['label']}',
                               style: const TextStyle(
                                 fontSize: 18,
                                 fontWeight: FontWeight.w700,
@@ -785,7 +787,9 @@ Future<int?> showLessonsSheet(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  '${l.t('unit')} ${child['label']}',
+                                  // FR-15.7/FR-15.19: the label IS the name,
+                              // verbatim. No "Unit" in front of it.
+                              '${child['label']}',
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: TextStyle(

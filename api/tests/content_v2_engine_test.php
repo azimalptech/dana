@@ -498,7 +498,15 @@ try {
         }
     }
 
-    $controller = new MediaController($storage);
+    // FR-15.18 added a generator to the constructor. This test never
+    // generates, so it passes one with no key — which cannot call out.
+    $controller = new MediaController(
+        $storage,
+        new Dana\Domain\Media\GeminiMedia(
+            new Dana\Domain\Media\GeminiSettings(apiKey: null),
+            new Psr\Log\NullLogger()
+        )
+    );
     $reqFactory = new ServerRequestFactory();
     $resFactory = new ResponseFactory();
     $authed = $reqFactory->createServerRequest('GET', '/api/v1/media/q777-stem.mp3')

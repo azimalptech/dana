@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Dana\Http\Controllers;
 
 use Dana\Domain\Content\QuestionPayload;
+use Dana\Domain\Media\GeminiMedia;
 use Dana\Domain\Models\ExerciseSet;
 use Dana\Domain\Models\Section;
 use Dana\Domain\Models\User;
@@ -40,8 +41,10 @@ use Psr\Http\Message\ServerRequestInterface;
  */
 final class ContentAdminController extends Controller
 {
-    public function __construct(private readonly QuizDrawService $quizDraws)
-    {
+    public function __construct(
+        private readonly QuizDrawService $quizDraws,
+        private readonly GeminiMedia $gemini,
+    ) {
     }
 
     // ----------------------------------------------- child unit -> sections
@@ -109,6 +112,10 @@ final class ContentAdminController extends Controller
             ->keyBy('section_id');
 
         return $this->json($response, [
+            // FR-15.18: the editor only offers to generate media when
+            // the operator has put a key in api/.env. No key, no
+            // buttons — rather than buttons that always fail.
+            'can_generate_media' => $this->gemini->configured(),
             'child_unit' => [
                 'id'    => (int) $childUnit->id,
                 // Explicit label wins verbatim (manual naming, 2026-08-20).
