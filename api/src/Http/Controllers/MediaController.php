@@ -6,6 +6,7 @@ namespace Dana\Http\Controllers;
 
 use Dana\Domain\Media\Audio;
 use Dana\Domain\Media\GeminiMedia;
+use Dana\Domain\Media\Note;
 use Dana\Domain\Models\Question;
 use Dana\Domain\Models\User;
 use Dana\Http\ApiException;
@@ -153,9 +154,26 @@ final class MediaController extends Controller
         $name = $this->write($question, $part, $kind, $made['bytes'], $made['ext']);
 
         return $this->json($response, $this->attach($question, $payload, $part, $name) + [
-            'note'   => GeminiMedia::cleanNote($note),
+            // What was actually asked for, so the panel can show it:
+            // "FLAG_TURKEY" reaches Gemini as "the national flag of
+            // Turkey", and a two-line script as a two-voice scene.
+            'note'   => $kind === 'audio' ? self::spokenSummary($note) : Note::imageSubject($note),
             'source' => 'gemini',
         ]);
+    }
+
+    /**
+     * How an audio note was interpreted, for the panel to echo back:
+     * a two-line script reads as a scene between two named people,
+     * anything else as one voice.
+     */
+    private static function spokenSummary(string $note): string
+    {
+        $parsed = Note::speech($note);
+
+        return $parsed['speakers'] === []
+            ? $parsed['text']
+            : $parsed['speakers'][0] . ' + ' . $parsed['speakers'][1];
     }
 
     /**

@@ -33,7 +33,23 @@ final class Config
         }
 
         if (is_file($basePath . '/.env')) {
-            Dotenv::createImmutable($basePath)->load();
+            // MUTABLE, i.e. api/.env wins over anything already in the
+            // machine's environment. Immutable was the opposite: dotenv
+            // silently skipped every key the OS had already defined, so
+            // the file the whole deploy guide tells you to edit could be
+            // ignored with no error anywhere.
+            //
+            // That is not hypothetical (2026-09-13): a stale
+            // GEMINI_API_KEY left in the developer's Windows environment
+            // shadowed the new one in api/.env, and the key read back as
+            // absent — Config saw neither value, because dotenv had
+            // skipped the assignment and $_ENV never received it. The
+            // same trap sits under DB_PASSWORD and JWT_SECRET on any
+            // host where someone once exported one.
+            //
+            // Dana configures itself from api/.env and nothing else
+            // (NFR-4, and DEPLOY.md §5), so the file is the authority.
+            Dotenv::createMutable($basePath)->load();
         }
 
         return self::$instance = new self($_ENV);

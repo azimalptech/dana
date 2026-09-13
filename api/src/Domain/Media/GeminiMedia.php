@@ -68,17 +68,17 @@ final class GeminiMedia
      */
     public function speech(string $note): array
     {
-        $text = self::cleanNote($note);
+        $parsed = Note::speech($note);
+
+        [$input, $speechConfig] = $parsed['speakers'] === []
+            ? $this->solo($parsed['text'])
+            : $this->conversation($parsed['speakers'], $parsed['lines']);
 
         $body = $this->call([
             'model'             => $this->settings->ttsModel,
-            'input'             => self::directive($this->settings->ttsDirective, self::DEFAULT_TTS_DIRECTIVE, $text),
+            'input'             => $input,
             'response_format'   => ['type' => 'audio'],
-            'generation_config' => [
-                'speech_config' => [
-                    ['voice' => $this->settings->ttsVoice],
-                ],
-            ],
+            'generation_config' => ['speech_config' => $speechConfig],
         ]);
 
         $pcm = self::decodeInline($body, 'output_audio');
@@ -95,13 +95,66 @@ final class GeminiMedia
     }
 
     /**
+     * One voice reading one line.
+     *
+     * @return array{0: string, 1: list<array<string, string>>}
+     */
+    private function solo(string $text): array
+    {
+        return [
+            self::directive($this->settings->ttsDirective, self::DEFAULT_TTS_DIRECTIVE, $text),
+            [['voice' => $this->settings->ttsVoice]],
+        ];
+    }
+
+    /**
+     * Two voices reading a scene.
+     *
+     * Gemini takes at most two speakers, and the names in `speech_config`
+     * must be the names used in the transcript — so the script goes up
+     * verbatim, labels and all, and the model is told to perform it
+     * rather than read it out.
+     *
+     * @param list<string> $speakers                                 already sorted, so a
+     *                                                               role keeps one voice
+     * @param list<array{speaker: string, text: string}> $lines
+     * @return array{0: string, 1: list<array<string, string>>}
+     */
+    private function conversation(array $speakers, array $lines): array
+    {
+        $script = implode("\n", array_map(
+            static fn (array $line): string => $line['speaker'] . ': ' . $line['text'],
+            $lines
+        ));
+
+        $directive = $this->settings->dialogueDirective;
+        $template = ($directive === null || trim($directive) === '')
+            ? self::DEFAULT_DIALOGUE_DIRECTIVE
+            : $directive;
+
+        $input = str_replace(
+            ['{a}', '{b}', '{script}'],
+            [$speakers[0], $speakers[1], $script],
+            $template
+        );
+
+        return [
+            $input,
+            [
+                ['speaker' => $speakers[0], 'voice' => $this->settings->ttsVoice],
+                ['speaker' => $speakers[1], 'voice' => $this->settings->ttsVoiceB],
+            ],
+        ];
+    }
+
+    /**
      * The note drawn.
      *
      * @return array{bytes: string, ext: string}
      */
     public function image(string $note): array
     {
-        $subject = self::cleanNote($note);
+        $subject = Note::imageSubject($note);
 
         $body = $this->call([
             'model'           => $this->settings->imageModel,
@@ -113,7 +166,7 @@ final class GeminiMedia
             ],
             'response_format' => [
                 'type'         => 'image',
-                'mime_type'    => 'image/png',
+                'mime_type'    => $this->settings->imageMime,
                 'aspect_ratio' => $this->settings->imageAspect,
                 // 1K, not the 2K/4K the API also offers: the response is
                 // inline base64 inside a JSON body that json_decode holds
@@ -123,13 +176,23 @@ final class GeminiMedia
             ],
         ]);
 
-        $png = self::decodeInline($body, 'output_image');
+        $bytes = self::decodeInline($body, 'output_image');
 
-        if (strlen($png) < 1000) {
+        if (strlen($bytes) < 1000) {
             throw self::failed('Модель вернула пустое изображение. Повторите попытку.');
         }
 
-        return ['bytes' => $png, 'ext' => 'png'];
+        return ['bytes' => $bytes, 'ext' => self::extensionFor($this->settings->imageMime)];
+    }
+
+    /** The file extension the media route knows this mime type by. */
+    private static function extensionFor(string $mime): string
+    {
+        return match (strtolower(trim($mime))) {
+            'image/png'  => 'png',
+            'image/webp' => 'webp',
+            default      => 'jpg',
+        };
     }
 
     /**
@@ -139,20 +202,73 @@ final class GeminiMedia
      * composed per question.
      */
     private const DEFAULT_TTS_DIRECTIVE =
-        'Read this aloud exactly as written, once, in a clear neutral English accent '
-        . 'at a calm pace, as the audio prompt of a listening exercise for beginner '
-        . 'learners of English. Say nothing else: {text}';
+        'Read the following aloud exactly as written, once, and say nothing else. '
+        . 'It is the audio prompt of a listening exercise for beginner learners of '
+        . 'English, so speak clearly and unhurriedly with crisp consonants, in a '
+        . 'standard British English accent as heard on BBC news. Do not add a '
+        . 'greeting, a sign-off or any comment of your own: {text}';
 
     /**
-     * "no text, no letters, no numbers" is not decoration. These pictures
-     * ARE the question — a student sees four of them and picks one — so a
-     * label rendered inside the image would hand over the answer.
+     * A scene, performed. `{a}` and `{b}` are the two speaker names, and
+     * they must match the names in `speech_config` — the doc is explicit
+     * that the model pairs them by name.
+     *
+     * The pace instruction earns its place: two native speakers in a
+     * hotel-reception scene will run the lines together at conversational
+     * speed, which is unusable for a beginner who has to catch "I have a
+     * reservation".
+     */
+    private const DEFAULT_DIALOGUE_DIRECTIVE =
+        'TTS the following conversation between {a} and {b}. It is a listening '
+        . 'exercise for beginner learners of English: both speakers use a standard '
+        . 'British English accent as heard on BBC news, speak clearly and a little '
+        . 'more slowly than natural conversation, and leave a short pause between '
+        . 'turns. Read only the words of the script — never say the speaker names '
+        . 'aloud — and add nothing of your own:' . "\n{script}";
+
+    /**
+     * Cartoon, and explicitly so — the client asked for cartoon-styled
+     * pictures, and "illustration" alone drifted towards stock vector
+     * art. Every other clause here was written against a picture the
+     * first draft actually produced (2026-09-13):
+     *
+     *  - "no face, no eyes" because "friendly cartoon of a pen" came
+     *    back as a smiling pen with eyes and blushing cheeks. Charming,
+     *    and no use in a vocabulary exercise about stationery.
+     *
+     *  - "one single object, no scene" because the note "italy" produced
+     *    a collage — a chef, a pizza, the Colosseum, the Leaning Tower,
+     *    a gondola, a bunch of grapes — which at the 96px an option tile
+     *    gets is unreadable mush.
+     *
+     *  - The text clause is repeated and made concrete because the first
+     *    attempt ignored it outright: "IMG_DICTIONARY" came back as an
+     *    open dictionary with DOG, APPLE, SUN and CAT printed legibly
+     *    across the page. These pictures ARE the question — a student
+     *    sees four and picks one — so a printed English word inside the
+     *    picture hands over the answer. Where an object cannot plausibly
+     *    be blank, the model is told what to draw INSTEAD of words
+     *    rather than simply forbidden them.
+     *
+     * The framing serves the app: BoxFit.cover into a 160px banner and
+     * 96px option tiles, so the subject is centred and away from the
+     * edges, and large enough to survive being shrunk that far.
      */
     private const DEFAULT_IMAGE_DIRECTIVE =
-        'A simple, friendly flat illustration of: {text}. Centred on a plain white '
-        . 'background, one clear subject, bright flat colours, no text, no letters, '
-        . 'no numbers, no watermark, no border. Suitable for a beginner English '
-        . 'textbook for all ages.';
+        'A children\'s-book cartoon drawing of ONE single object: {text}. '
+        . 'Bold clean outlines, bright flat colours, simple rounded shapes, light '
+        . 'shading. Not photorealistic, not a 3D render, not clip-art collage. '
+        . 'THE SUBJECT IS AN OBJECT, NOT A CHARACTER: no face, no eyes, no mouth, '
+        . 'no arms or legs added to it, unless the subject itself is a person or an '
+        . 'animal. Draw the subject ALONE — no scene, no background objects, no '
+        . 'landmarks, no montage of several things, nothing else in the picture. '
+        . 'NO WRITING ANYWHERE: no words, no letters, no numbers, no labels, no '
+        . 'captions, no speech bubbles, no watermark, no logo. If the object would '
+        . 'normally carry writing, such as a book or a sign, draw the writing as '
+        . 'faint wavy grey lines that cannot be read as any language. '
+        . 'Composition: the object centred and filling most of the frame, with a '
+        . 'small even margin on all four sides, on a plain flat white background, '
+        . 'no border and no frame. Suitable for a beginner English textbook.';
 
     /** The configured directive with {text} filled in. */
     private static function directive(?string $configured, string $fallback, string $text): string
@@ -160,37 +276,6 @@ final class GeminiMedia
         $template = ($configured === null || trim($configured) === '') ? $fallback : $configured;
 
         return str_replace('{text}', $text, $template);
-    }
-
-    /**
-     * A v2 note is the author's own word — "seven", "italy" — but the
-     * option-level ones arrive as identifiers like "IMG_PEN" from the
-     * client's own files. Speaking or drawing "IMG_PEN" literally is
-     * exactly the kind of nonsense that would reach a student, so the
-     * prefix and the underscores come off first.
-     */
-    public static function cleanNote(string $note): string
-    {
-        $text = trim($note);
-        $text = (string) preg_replace('/^(IMG|IMAGE|AUD|AUDIO)[_\-\s]+/i', '', $text);
-        $text = str_replace(['_', '-'], ' ', $text);
-        $text = trim((string) preg_replace('/\s+/u', ' ', $text));
-
-        // An ALL-CAPS remainder is an identifier, not prose: "IMG_PEN"
-        // leaves "PEN", which a TTS voice may spell out letter by letter
-        // and an illustrator may render as a sign. Anything with any
-        // lower case in it is the author's own writing and is left
-        // exactly as typed — otherwise "Italy" and "New York" would be
-        // quietly downcased.
-        if ($text !== '' && mb_strtoupper($text, 'UTF-8') === $text) {
-            $text = mb_strtolower($text, 'UTF-8');
-        }
-
-        if ($text === '') {
-            throw self::failed('У этой части нет текста для озвучки или картинки.');
-        }
-
-        return $text;
     }
 
     /** @param array<string, mixed> $payload */

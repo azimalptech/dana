@@ -26,6 +26,7 @@ use Dana\Database\Bootstrap;
 use Dana\Domain\Media\Audio;
 use Dana\Domain\Media\GeminiMedia;
 use Dana\Domain\Media\GeminiSettings;
+use Dana\Domain\Media\Note;
 use Dana\Domain\Models\Section;
 use Dana\Http\ApiException;
 use Dana\Http\Controllers\MediaController;
@@ -84,41 +85,108 @@ function cleanup(): void
 
 cleanup();
 
-echo PHP_EOL . 'The note becomes the prompt' . PHP_EOL;
+echo PHP_EOL . 'What to draw' . PHP_EOL;
 
-// The stem notes are plain words; the OPTION notes in the client's own
-// files are identifiers. Both have to end up as something worth saying.
+// Every one of these is a real note from the client's own files.
 foreach ([
-    'seven'        => 'seven',
-    'italy'        => 'italy',
-    'IMG_PEN'      => 'pen',
+    // Identifiers get decoded…
+    'IMG_PEN'        => 'pen',
+    'IMG_DICTIONARY' => 'dictionary',
     'IMG_COFFEE_CUP' => 'coffee cup',
-    'image_window' => 'window',
-    'AUDIO_seven'  => 'seven',
-    '  spaced  '   => 'spaced',
-    "two\tspaces"  => 'two spaces',
+    'IMG_WINDOW'     => 'window',
+    // …but FLAG_ is MEANING, not noise. Stripped naively, FLAG_TURKEY
+    // becomes "turkey" and the model draws the bird — in a question
+    // whose other three options are countries.
+    'FLAG_TURKEY'    => 'the national flag of Turkey',
+    'FLAG_POLAND'    => 'the national flag of Poland',
+    'FLAG_JAPAN'     => 'the national flag of Japan',
+    // An identifier with no known prefix is its own subject.
+    'COFFEE_CUP'     => 'coffee cup',
+    // Prose is the author writing English — passed through untouched.
+    'italy'          => 'italy',
+    'a red double-decker bus' => 'a red double-decker bus',
+    '  spaced  '     => 'spaced',
 ] as $note => $expected) {
-    $got = GeminiMedia::cleanNote((string) $note);
+    $got = Note::imageSubject((string) $note);
     check("«{$note}» → «{$expected}»", $got === $expected, $got);
 }
 
-$thrown = null;
-try {
-    GeminiMedia::cleanNote('   ');
-} catch (ApiException $e) {
-    $thrown = $e;
+foreach (['', '   ', 'IMG_', 'FLAG_'] as $bad) {
+    $thrown = null;
+    try {
+        Note::imageSubject($bad);
+    } catch (ApiException $e) {
+        $thrown = $e;
+    }
+    check('«' . $bad . '» is refused rather than drawn', $thrown !== null);
 }
-check('an empty note is refused rather than sent', $thrown !== null);
 
-// "IMG" on its own is a prefix with nothing after it — there is no
-// subject, and drawing the literal string would be worse than refusing.
+echo PHP_EOL . 'What to say — one voice' . PHP_EOL;
+
+foreach ([
+    'seven' => 'seven',
+    'A cappuccino, please' => 'A cappuccino, please',
+    // A single line is ALWAYS plain text, whatever punctuation it holds.
+    // Parsed as a script, this would lose the word "Time" entirely.
+    'Time: half past four' => 'Time: half past four',
+] as $note => $expected) {
+    $got = Note::speech((string) $note);
+    check("«{$note}» reads as one voice", $got['speakers'] === [] && $got['text'] === $expected, $got['text']);
+}
+
+// Labelled, but only one person: read it, drop the label.
+$one = Note::speech("Teacher: Open your books.\nTeacher: Page ten.");
+check('a one-person script drops the labels',
+    $one['speakers'] === [] && $one['text'] === 'Open your books. Page ten.', $one['text']);
+
+// Two lines where one is unlabelled is prose that wrapped, not a script.
+$wrapped = Note::speech("This is a long sentence\nthat happens to wrap.");
+check('wrapped prose is not mistaken for a script',
+    $wrapped['speakers'] === []
+    && $wrapped['text'] === 'This is a long sentence that happens to wrap.', $wrapped['text']);
+
+echo PHP_EOL . 'What to say — two voices' . PHP_EOL;
+
+$dialogue = Note::speech("Receptionist: Good evening. How can I help you?\nGuest: I have a reservation.");
+check('a two-person scene is recognised', $dialogue['speakers'] !== []);
+check('both speakers are found',
+    $dialogue['speakers'] === ['Guest', 'Receptionist'], implode(', ', $dialogue['speakers']));
+check('every line keeps its speaker and its words',
+    $dialogue['lines'] === [
+        ['speaker' => 'Receptionist', 'text' => 'Good evening. How can I help you?'],
+        ['speaker' => 'Guest', 'text' => 'I have a reservation.'],
+    ]);
+
+// THE consistency bug this design exists to prevent. The same pair
+// appears in both orders across the course; assigning a voice by who
+// speaks first would give the teacher one voice in Unit 1 and another
+// in Unit 5.
+$teacherFirst = Note::speech("Teacher: Open your books.\nStudent: Sorry. Can you repeat that?");
+$studentFirst = Note::speech("Student: Sorry I'm late.\nTeacher: OK. Sit down, please.");
+check('a role keeps the same voice whichever order it speaks in',
+    $teacherFirst['speakers'] === $studentFirst['speakers'],
+    implode('/', $teacherFirst['speakers']) . ' vs ' . implode('/', $studentFirst['speakers']));
+
+$ab = Note::speech("A: Hello. I'm Anna.\nB: Hi. I'm Maria. Nice to meet you.");
+check('bare A/B labels work too', $ab['speakers'] === ['A', 'B'], implode(', ', $ab['speakers']));
+
+// A receptionist spelling out a name. The hyphens are the content —
+// an identifier cleanup would have flattened them.
+$spelling = Note::speech("Receptionist: How do you spell it?\nGuest: A - L - I.");
+check('punctuation inside a line survives',
+    $spelling['lines'][1]['text'] === 'A - L - I.', $spelling['lines'][1]['text']);
+
 $thrown = null;
 try {
-    GeminiMedia::cleanNote('IMG_');
+    Note::speech("A: One.\nB: Two.\nC: Three.");
 } catch (ApiException $e) {
     $thrown = $e;
 }
-check('a bare prefix is refused too', $thrown !== null);
+check('three speakers is refused, not silently truncated to two',
+    $thrown !== null && $thrown->errorCode === 'too_many_speakers');
+check('and the message names them so the author can fix it',
+    $thrown !== null && str_contains($thrown->messageRu, 'C'));
+
 
 echo PHP_EOL . 'Raw PCM becomes a playable file' . PHP_EOL;
 

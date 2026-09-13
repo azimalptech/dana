@@ -322,6 +322,102 @@ function MediaPreview({ path, kind }: { path: string; kind: 'audio' | 'image' })
 }
 
 /**
+ * FR-15.18: fill every empty media slot in one exercise set, then let
+ * the author walk the results and regenerate the ones they do not like.
+ *
+ * The loop is HERE and not on the server on purpose. A set of sixteen
+ * listening questions is about three minutes of Gemini calls — one
+ * request holding that open would hit PHP's execution limit, and a
+ * failure halfway would be indistinguishable from a hang. Calling the
+ * single-part endpoint once per slot gives a live count, survives one
+ * slot failing, can be stopped, and reuses the exact path the single
+ * button already uses.
+ *
+ * It only ever fills EMPTY slots. An existing file — uploaded by hand or
+ * generated and kept — is never overwritten by the bulk run; replacing
+ * one is what the per-part «Перегенерировать» button is for.
+ */
+function BulkGenerate({
+  set,
+  run,
+}: {
+  set: SetRow;
+  run: (a: () => Promise<unknown>) => Promise<void>;
+}) {
+  const canGenerate = useContext(CanGenerateMedia);
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  const [failures, setFailures] = useState<string[]>([]);
+  const cancelled = useRef(false);
+
+  const pending = set.questions.flatMap((q) =>
+    mcPartList(q.payload)
+      .filter(({ part }) => partAwaitsFile(part))
+      .map(({ key, part }) => ({ questionId: q.id, key, part })),
+  );
+
+  if (!canGenerate || pending.length === 0) return null;
+
+  async function generateAll() {
+    cancelled.current = false;
+    setFailures([]);
+    setProgress({ done: 0, total: pending.length });
+
+    const failed: string[] = [];
+
+    for (let i = 0; i < pending.length; i++) {
+      if (cancelled.current) break;
+
+      const { questionId, key, part } = pending[i];
+      const note = part.audio_note ?? part.image_note ?? '?';
+
+      try {
+        await api.post(`/manage/media/${questionId}/${encodeURIComponent(key)}/generate`);
+      } catch (e: unknown) {
+        // One bad note must not end the run — the rest of the set is
+        // still worth having, and the failures are listed at the end.
+        failed.push(`«${note}»: ${e instanceof ApiError ? e.message : 'ошибка'}`);
+      }
+
+      setProgress({ done: i + 1, total: pending.length });
+    }
+
+    setFailures(failed);
+    setProgress(null);
+    await run(() => Promise.resolve());
+  }
+
+  return (
+    <>
+      {progress === null ? (
+        <button className="btn btn-sm" onClick={() => void generateAll()}>
+          Сгенерировать всё недостающее ({pending.length})
+        </button>
+      ) : (
+        <>
+          <span className="badge">
+            Генерация… {progress.done} / {progress.total}
+          </span>
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={() => {
+              cancelled.current = true;
+            }}
+          >
+            Остановить
+          </button>
+        </>
+      )}
+
+      {failures.length > 0 && (
+        <span className="badge badge-warn" title={failures.join('; ')}>
+          не удалось: {failures.length}
+        </span>
+      )}
+    </>
+  );
+}
+
+/**
  * The per-part media strip of a v2 question: the NOTE from the xlsx
  * («что записать/нарисовать»), upload control, preview and delete.
  */
@@ -399,6 +495,22 @@ function PartMedia({
       {part.media_path ? (
         <>
           <MediaPreview path={part.media_path} kind={kind} />
+
+          {/* FR-15.18: a generated clip or picture is a first
+              attempt, not a verdict — the client asked to be able
+              to take another one when it is not good enough. It
+              overwrites in place, so nothing accumulates. */}
+          {canGenerate && (
+            <button
+              className="btn btn-ghost btn-sm"
+              disabled={busy}
+              title={`Сгенерировать заново по тексту «${note}». Текущий файл будет заменён.`}
+              onClick={() => void generate()}
+            >
+              {busy ? '…' : 'Перегенерировать'}
+            </button>
+          )}
+
           <button
             className="btn btn-danger btn-sm"
             disabled={busy}
@@ -1171,6 +1283,8 @@ function SetSection({
           Вопросов: {set.questions.length} · В квизе:{' '}
           {set.questions.filter((q) => q.quiz_eligible).length}
         </span>
+
+        <BulkGenerate set={set} run={run} />
         {/* FR-15.11: one click instead of an edit-save cycle per question —
             unticked hand-authored questions quietly starve the quiz pools. */}
         {set.questions.length > 0 &&
