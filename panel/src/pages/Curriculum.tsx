@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 
 import { ApiError, api } from '../api';
 import { useAsync } from '../hooks';
+import ReorderNudge from '../ReorderNudge';
 import { useReorder } from '../reorder';
 
 interface SectionRow {
@@ -167,7 +168,7 @@ export default function Curriculum() {
                   {childOrder.saving ? 'Сохранение…' : 'Сохранить порядок'}
                 </button>
                 <span className="muted" style={{ fontSize: 13 }}>
-                  Перетащите карточку мышью. Ученик увидит подюниты в этом порядке.
+                  Перетащите карточку мышью или используйте ▲▼. Ученик увидит подюниты в этом порядке.
                 </span>
               </>
             )}
@@ -182,6 +183,11 @@ export default function Curriculum() {
             run={run}
             remove={remove}
             drag={childOrder.isOpen(unit.id) ? childOrder.rowProps(index) : null}
+            nudge={
+              childOrder.isOpen(unit.id)
+                ? { index, count: childOrder.count(), move: childOrder.move }
+                : null
+            }
           />
         ))}
 
@@ -411,6 +417,11 @@ function UnitsCard({
                 remove={remove}
                 onOpen={onOpen}
                 drag={order.isOpen(level.id) ? order.rowProps(index) : null}
+                nudge={
+                  order.isOpen(level.id)
+                    ? { index, count: order.count(), move: order.move }
+                    : null
+                }
               />
             ))}
           </tbody>
@@ -430,7 +441,7 @@ function UnitsCard({
             Отмена
           </button>
           <span className="muted" style={{ fontSize: 13 }}>
-            Перетащите строку мышью. Ученик увидит юниты в этом порядке.
+            Перетащите строку мышью или используйте ▲▼. Ученик увидит юниты в этом порядке.
           </span>
         </div>
       )}
@@ -445,6 +456,7 @@ function UnitRowView({
   remove,
   onOpen,
   drag,
+  nudge,
 }: {
   unit: UnitRow;
   run: (a: () => Promise<unknown>) => Promise<void>;
@@ -452,6 +464,8 @@ function UnitRowView({
   onOpen: (id: number) => void;
   /** Drag handlers while the level is being reordered, else null. */
   drag: Record<string, unknown> | null;
+  /** Move buttons while reordering — the only way to do it on touch. */
+  nudge: { index: number; count: number; move: (i: number, d: number) => void } | null;
 }) {
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(unit.name ?? '');
@@ -502,6 +516,7 @@ function UnitRowView({
     <tr key={unit.id} className={drag ? undefined : 'row-link'} onClick={open} {...(drag ?? {})}>
       <td>
         {drag && <span className="muted" title="Перетащите строку">⠿ </span>}
+        {nudge && <ReorderNudge {...nudge} />}
         {drag ? (
           unitName(unit)
         ) : (
@@ -550,6 +565,7 @@ function SectionCard({
   run,
   remove,
   drag,
+  nudge,
 }: {
   unitNumber: number;
   section: SectionRow;
@@ -557,6 +573,8 @@ function SectionCard({
   remove: Remove;
   /** Drag handlers while the unit is being reordered, else null. */
   drag: Record<string, unknown> | null;
+  /** Move buttons while reordering — the only way to do it on touch. */
+  nudge: { index: number; count: number; move: (i: number, d: number) => void } | null;
 }) {
   const [editing, setEditing] = useState(false);
   const [code, setCode] = useState(section.code);
@@ -568,6 +586,7 @@ function SectionCard({
       <div className="card-head">
         <h2 style={{ margin: 0 }}>
           {drag && <span className="muted" title="Перетащите карточку">⠿ </span>}
+          {nudge && <ReorderNudge {...nudge} />}
           {sectionName(unitNumber, section)}{' '}
           {section.title && <span className="muted">— {section.title}</span>}
         </h2>

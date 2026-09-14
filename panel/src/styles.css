@@ -609,6 +609,16 @@ tr:last-child td {
 
 /* ── Phones ─────────────────────────────────────────────────────────── */
 @media (max-width: 560px) {
+  /* A card header is a no-wrap flex row: a "flex: 1" title that will
+     not shrink past its longest word, beside nowrap action buttons.
+     With a realistic child-unit title that totals 392px inside 375px
+     and the PAGE scrolls sideways, clipping the last button. Wrapping
+     is the fix; min-width:0 on the h2 also stops the overflow but then
+     renders the unbreakable word out of its box, under the buttons. */
+  .card-head {
+    flex-wrap: wrap;
+  }
+
   .content {
     padding: 14px 12px;
   }
@@ -633,5 +643,67 @@ tr:last-child td {
 @media (prefers-reduced-motion: reduce) {
   .sidebar {
     transition: none;
+  }
+}
+
+/* Move-up / move-down beside a drag handle (FR-15.25). Dragging is dead
+   on touch — these buttons are the whole reordering feature there, and
+   the only keyboard route to it anywhere. */
+.nudge {
+  display: inline-flex;
+  gap: 4px;
+  vertical-align: middle;
+  margin-right: 8px;
+}
+
+.nudge-btn {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1.5px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--brand);
+  font-size: 11px;
+  line-height: 1;
+}
+
+.nudge-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.nudge-btn:not(:disabled):hover {
+  border-color: var(--brand);
+  background: var(--brand-soft);
+}
+
+/* Comfortable touch targets where they are the only option. */
+@media (max-width: 900px) {
+  .nudge-btn {
+    width: 40px;
+    height: 40px;
+    font-size: 13px;
+  }
+}
+
+/* A table cell shrinks to the min-content of its DISPLAY rows, and
+   below 900px the table sizes to its content rather than the card - so
+   an inline-edit input inherited a 66px box, about six characters,
+   while someone corrected a +993 number. Measured (FR-15.25). */
+.cell-input {
+  min-width: 150px;
+}
+
+/* iOS Safari zooms the page when a focused input is under 16px, and
+   does not zoom back out - leaving the panel pannable sideways for the
+   rest of the session. body is 15px and inputs inherit it, so they are
+   bumped to 16px exactly where it matters. Desktop keeps 15px: it has
+   no such behaviour and the denser type is deliberate. */
+@media (max-width: 900px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px;
   }
 }

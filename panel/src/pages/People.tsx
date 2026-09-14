@@ -618,10 +618,19 @@ function StaffRow({
     return (
       <tr>
         <td>
-          <input value={name} onChange={(e) => setName(e.target.value)} />
+          {/* Below 900px the table sizes to its content, so these columns
+              shrink to the min-content of the DISPLAY rows and the inputs
+              inherit it — measured at 66px and 91px, about six visible
+              characters while correcting a +993 number (FR-15.25). */}
+          <input
+            className="cell-input"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
         </td>
         <td>
           <input
+            className="cell-input"
             value={login}
             onChange={(e) => setLogin(e.target.value)}
             placeholder="+99365002233"

@@ -197,8 +197,13 @@ function ClassroomRowView({ row, onChanged }: { row: ClassroomRow; onChanged: ()
         padding: '14px 0',
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-        <div style={{ flex: 1 }}>
+      {/* Five buttons plus a title is ~500px of unshrinkable content in
+          the 311px a phone has inside the card, and flex items refuse to
+          go below their longest word — so without wrapping the whole PAGE
+          scrolls and «Удалить класс» leaves the screen (FR-15.25). The
+          minWidth:0 stops one long classroom name re-inflating the line. */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+        <div style={{ flex: '1 1 180px', minWidth: 0 }}>
           <strong>{row.name}</strong>{' '}
           {row.closed && <span className="badge">завершён</span>}
           <div className="muted" style={{ fontSize: 13 }}>
@@ -262,7 +267,10 @@ function ClassroomRowView({ row, onChanged }: { row: ClassroomRow; onChanged: ()
             Для подтверждения введите название класса: <code>{row.name}</code>
           </p>
           {error && <div className="alert alert-error">{error}</div>}
-          <div style={{ display: 'flex', gap: 10 }}>
+          {/* .with-action already wraps at 900px and gives the button full
+             width at 560px; this row was a hand-rolled copy that did neither
+             and spilled out of the alert on a phone. */}
+          <div className="with-action">
             <input value={typed} onChange={(e) => setTyped(e.target.value)} />
             <button
               className="btn btn-danger"

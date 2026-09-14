@@ -120,6 +120,31 @@ export function useReorder<T extends Orderable>(options: Options<T>) {
   }
 
   /**
+   * Move a row one place, without dragging (FR-15.25).
+   *
+   * HTML5 drag-and-drop fires NO events on a touch screen — not
+   * dragstart, not drop, nothing — so on the phone and tablet the client
+   * asked to work on, the drag below is not merely awkward, it is inert.
+   * These two buttons are the whole feature on those devices, and on a
+   * desktop they are also the only way to reorder from the keyboard.
+   *
+   * Deliberately not a touch reimplementation of dragging: a list this
+   * short is faster to nudge than to drag, and pointer-event dragging
+   * fights the page's own scrolling on a phone.
+   */
+  function move(index: number, delta: number): void {
+    const to = index + delta;
+
+    if (index < 0 || index >= draftIds.length) return;
+    if (to < 0 || to >= draftIds.length) return;
+
+    const next = [...draftIds];
+    const [lifted] = next.splice(index, 1);
+    next.splice(to, 0, lifted);
+    setDraftIds(next);
+  }
+
+  /**
    * Everything a row needs to be a drag handle and a drop target. The
    * inset shadow marks which side of the row the drop lands on —
    * dragging down inserts below, up inserts above.
@@ -183,6 +208,9 @@ export function useReorder<T extends Orderable>(options: Options<T>) {
     apply,
     changed,
     rowProps,
+    /** How many rows the open draft has, for bounding the move buttons. */
+    count: () => draftIds.length,
+    move,
     commit,
   };
 }

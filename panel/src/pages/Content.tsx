@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { ApiError, api } from '../api';
+import ReorderNudge from '../ReorderNudge';
 import { useAsync } from '../hooks';
 import SectionEditor from './SectionEditor';
 
@@ -201,6 +202,26 @@ export default function Content() {
     setDragOver(null);
   }
 
+  /**
+   * Moves a row one place without dragging.
+   *
+   * HTML5 drag fires no events on a touch screen, so on a phone or
+   * tablet "Изменить порядок" opened a mode that could not do its one
+   * job — and it disables the publish pills while it is open, so the
+   * page lost its main function too (FR-15.25). Goes through the same
+   * splitOrderable/moveInList path as dropAt, so the exam quiz stays
+   * pinned last exactly as it does for a drag.
+   */
+  function nudgeBy(sections: SectionRow[], index: number, delta: number) {
+    const [movable, pinned] = splitOrderable(sections);
+    const to = index + delta;
+
+    if (index < 0 || index >= movable.length) return;
+    if (to < 0 || to >= movable.length) return;
+
+    setDraftIds([...moveInList(movable, index, to), ...pinned].map((s) => s.id));
+  }
+
   /** Drops the row being dragged at `to`, both counted among the movable rows. */
   function dropAt(sections: SectionRow[], to: number) {
     const [movable, pinned] = splitOrderable(sections);
@@ -285,7 +306,7 @@ export default function Content() {
                 {movable.length > 1 && (
                   <button
                     className={reordering ? 'btn btn-sm' : 'btn btn-ghost btn-sm'}
-                    title="Перетаскивать разделы мышью и сохранить новый порядок"
+                    title="Изменить порядок разделов и сохранить его"
                     // Only one child unit at a time: switching cards
                     // would throw away an unsaved arrangement without
                     // saying so.
@@ -371,7 +392,14 @@ export default function Content() {
                       {reordering && (
                         <td className="muted" style={{ textAlign: 'center' }}>
                           {draggable ? (
-                            <span title="Перетащите строку">⠿</span>
+                            <>
+                              <ReorderNudge
+                                index={index}
+                                count={movable.length}
+                                move={(i, d) => nudgeBy(shownSections, i, d)}
+                              />
+                              <span title="Перетащите строку">⠿</span>
+                            </>
                           ) : (
                             <span title="Экзамен-квиз в приложении всегда идёт последним, отдельной карточкой">
                               —
@@ -436,7 +464,7 @@ export default function Content() {
                 )}
 
                 <span className="muted" style={{ fontSize: 13 }}>
-                  Перетащите строку мышью. Ученик увидит разделы в этом порядке.
+                  Перетащите строку мышью или используйте ▲▼. Ученик увидит разделы в этом порядке.
                 </span>
               </div>
             )}
