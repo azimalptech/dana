@@ -11,8 +11,16 @@
 #                                    not add another prefix here)
 #
 # Because everything is same-origin, the panel's browser fetches never hit
-# CORS — the API defines no CORS headers at all, so a split-subdomain
-# layout would need backend changes this guide deliberately avoids.
+# CORS. That is still a perfectly good way to deploy Dana and needs no
+# extra configuration.
+#
+# FR-15.24 added the OTHER layout the client asked for — the panel and
+# the API on separate subdomains. See split-subdomain.conf.example beside
+# this file. It is not just two vhosts: the panel's requests become
+# cross-origin, so the API has to allowlist the panel's origin in
+# CORS_ALLOWED_ORIGINS and the panel has to be BUILT with VITE_API_BASE
+# naming the API. Setting one without the other leaves the panel failing
+# in the browser with an opaque CORS error and nothing in the API log.
 
 <VirtualHost *:80>
     ServerName YOUR_DOMAIN

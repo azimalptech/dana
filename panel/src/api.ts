@@ -31,9 +31,25 @@ export interface PanelUser {
   center_id: number | null;
 }
 
-// In dev, Vite proxies /api to the PHP server. In production the panel is
-// served by the same Apache, so a relative path is correct either way.
-const BASE = '/api/v1';
+// Where the API lives.
+//
+// The default is RELATIVE, which is right for the two layouts that need
+// no configuration: the Vite dev server, which proxies /api to the PHP
+// server, and a single-origin deployment where the same host serves both
+// the panel and the API.
+//
+// FR-15.24 added a third: the panel on its own subdomain. There a
+// relative path resolves against admin.mydana.app, which serves no API,
+// so the origin has to be named. Set VITE_API_BASE at BUILD time — Vite
+// inlines it, so this is baked into the bundle, not read at runtime:
+//
+//   VITE_API_BASE=https://api.mydana.app/api/v1
+//
+// That request is then cross-origin, which only works because the API
+// allowlists this panel's origin in CORS_ALLOWED_ORIGINS. Changing one
+// without the other breaks the panel with an opaque browser error, so
+// they are documented together in deploy/DEPLOY.md.
+const BASE = import.meta.env.VITE_API_BASE ?? '/api/v1';
 
 const ACCESS_KEY = 'panel_access';
 const REFRESH_KEY = 'panel_refresh';

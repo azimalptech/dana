@@ -1,0 +1,83 @@
+# Dana — panel and API on separate subdomains (FR-15.24).
+#
+#   https://admin.mydana.app/      -> the built panel (static files)
+#   https://api.mydana.app/api/v1/ -> the PHP API
+#
+# Use this INSTEAD of apache-dana.conf.example, not alongside it. The
+# single-origin layout in that file still works and needs no CORS; this
+# one is for the split the client asked for on 2026-09-14.
+#
+# THREE THINGS MUST AGREE or the panel fails with an opaque browser
+# error and nothing in the API log:
+#
+#   1. api/.env          CORS_ALLOWED_ORIGINS=https://admin.mydana.app
+#   2. panel/.env.production
+#                        VITE_API_BASE=https://api.mydana.app/api/v1
+#                        (baked in at BUILD time — rebuild after changing)
+#   3. the mobile app    flutter build apk --release \
+#                          --dart-define=API_BASE=https://api.mydana.app/api/v1
+#
+# DNS and TLS first: both names need an A record pointing at this server
+# and a certificate, e.g.
+#   certbot --apache -d api.mydana.app -d admin.mydana.app
+#
+# Note the API vhost adds NO CORS headers of its own. They come from the
+# application, which knows the allowlist; adding them here as well would
+# send the header twice and browsers reject that outright.
+
+# ── Panel ────────────────────────────────────────────────────────────
+<VirtualHost *:80>
+    ServerName admin.mydana.app
+    Redirect permanent / https://admin.mydana.app/
+</VirtualHost>
+
+<VirtualHost *:443>
+    ServerName admin.mydana.app
+
+    SSLEngine on
+    SSLCertificateFile    /etc/letsencrypt/live/admin.mydana.app/fullchain.pem
+    SSLCertificateKeyFile /etc/letsencrypt/live/admin.mydana.app/privkey.pem
+
+    DocumentRoot /var/www/dana/panel/dist
+
+    <Directory /var/www/dana/panel/dist>
+        Require all granted
+        # No client-side router in the panel, so no SPA catch-all needed.
+    </Directory>
+
+    ErrorLog  ${APACHE_LOG_DIR}/dana-admin-error.log
+    CustomLog ${APACHE_LOG_DIR}/dana-admin-access.log combined
+</VirtualHost>
+
+# ── API ──────────────────────────────────────────────────────────────
+<VirtualHost *:80>
+    ServerName api.mydana.app
+    Redirect permanent / https://api.mydana.app/
+</VirtualHost>
+
+<VirtualHost *:443>
+    ServerName api.mydana.app
+
+    SSLEngine on
+    SSLCertificateFile    /etc/letsencrypt/live/api.mydana.app/fullchain.pem
+    SSLCertificateKeyFile /etc/letsencrypt/live/api.mydana.app/privkey.pem
+
+    # Slim already registers its routes under /api/v1, so the docroot is
+    # api/public and the path keeps its prefix — do NOT strip it here.
+    DocumentRoot /var/www/dana/api/public
+
+    <Directory /var/www/dana/api/public>
+        Require all granted
+        AllowOverride All
+        Options -Indexes
+
+        # api/public/.htaccess does the front-controller rewrite.
+        # With php-fpm instead of mod_php, uncomment:
+        # <FilesMatch \.php$>
+        #     SetHandler "proxy:unix:/run/php/php8.2-fpm.sock|fcgi://localhost"
+        # </FilesMatch>
+    </Directory>
+
+    ErrorLog  ${APACHE_LOG_DIR}/dana-api-error.log
+    CustomLog ${APACHE_LOG_DIR}/dana-api-access.log combined
+</VirtualHost>

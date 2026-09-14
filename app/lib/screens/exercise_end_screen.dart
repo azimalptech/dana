@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:lottie/lottie.dart';
 
 import '../core/icons.dart';
 import '../core/l10n.dart';
@@ -89,104 +90,113 @@ class _ExerciseEndScreenState extends State<ExerciseEndScreen> {
               ),
             ),
             Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.symmetric(horizontal: 24),
-                child: Column(
-                  children: [
-                    const SizedBox(height: 16),
-                    // SPEC: agent B crops these from the end-screen frames
-                    // into app/assets/illustrations/ and registers them in
-                    // pubspec. The builder keeps the screen alive until
-                    // the crop lands.
-                    Image.asset(
-                      tier.asset,
-                      height: 240,
-                      errorBuilder: (_, _, _) => const SizedBox(height: 240),
-                    ),
-                    const SizedBox(height: 36),
-                    Text(
-                      _s(l, tier.titleKey(isQuiz), tier.titleFallback(isQuiz)),
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.w700,
-                        color: DanaColors.brand,
-                        letterSpacing: -0.48,
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      child: Text(
-                        _s(l, tier.bodyKey(isQuiz), tier.bodyFallback(isQuiz)),
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          fontSize: 16,
-                          height: 1.45,
-                          color: DanaColors.textMuted,
-                          letterSpacing: -0.32,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 36),
-                    // FR-15.22: the ring sweeps up to the score and
-                    // the number climbs with it, so the student
-                    // watches the result arrive instead of finding it
-                    // already sitting there.
-                    //
-                    // ONE tween drives both, so the arc and the digits
-                    // can never disagree, and it ends on exactly the
-                    // server's number — this screen computes no score
-                    // of its own (NFR-5). The COLOUR does not animate:
-                    // the tier is fixed by the final percent, so a 92%
-                    // ring is green from the first frame rather than
-                    // travelling red -> amber -> green and implying a
-                    // verdict that was never in doubt.
-                    TweenAnimationBuilder<double>(
-                      tween: Tween(begin: 0, end: percent.toDouble()),
-                      // Longer for a higher score: a full ring that
-                      // takes the same time as a quarter one has to
-                      // race, and the climb is the reward.
-                      duration: still
-                          ? Duration.zero
-                          : Duration(milliseconds: 450 + percent * 6),
-                      curve: Curves.easeOutCubic,
-                      builder: (context, shown, _) => SizedBox(
-                        width: 92,
-                        height: 92,
-                        child: CustomPaint(
-                          painter: _RingPainter(
-                            fraction: (shown / 100).clamp(0.0, 1.0),
-                            color: tier.color,
-                            track: tier.tint,
-                          ),
-                          child: Center(
-                            child: Text(
-                              '${shown.round()}%',
-                              style: TextStyle(
-                                fontSize: 21,
+              // Outside the scroll view on purpose: the illustration is
+              // sized from the room this screen actually has, and inside
+              // a scroll view the available height is unbounded.
+              child: LayoutBuilder(
+                builder: (context, box) => SingleChildScrollView(
+                  child: Column(
+                    children: [
+                      const SizedBox(height: 16),
+                      _Illustration(tier: tier, room: box.maxHeight, still: still),
+                      const SizedBox(height: 36),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 24),
+                        child: Column(
+                          children: [
+                            Text(
+                              _s(l, tier.titleKey(isQuiz),
+                                  tier.titleFallback(isQuiz)),
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                fontSize: 24,
                                 fontWeight: FontWeight.w700,
-                                letterSpacing: -0.42,
-                                color: tier.color,
+                                color: DanaColors.brand,
+                                letterSpacing: -0.48,
                               ),
                             ),
-                          ),
+                            const SizedBox(height: 10),
+                            Padding(
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 16),
+                              child: Text(
+                                _s(l, tier.bodyKey(isQuiz),
+                                    tier.bodyFallback(isQuiz)),
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  height: 1.45,
+                                  color: DanaColors.textMuted,
+                                  letterSpacing: -0.32,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 36),
+                            // FR-15.22: the ring sweeps up to the score
+                            // and the number climbs with it, so the
+                            // student watches the result arrive instead
+                            // of finding it already sitting there.
+                            //
+                            // ONE tween drives both, so the arc and the
+                            // digits can never disagree, and it ends on
+                            // exactly the server's number — this screen
+                            // computes no score of its own (NFR-5). The
+                            // COLOUR does not animate: the tier is fixed
+                            // by the final percent, so a 92% ring is
+                            // green from the first frame rather than
+                            // travelling red -> amber -> green and
+                            // implying a verdict that was never in doubt.
+                            TweenAnimationBuilder<double>(
+                              tween: Tween(begin: 0, end: percent.toDouble()),
+                              // Longer for a higher score: a full ring
+                              // that takes the same time as a quarter one
+                              // has to race, and the climb is the reward.
+                              duration: still
+                                  ? Duration.zero
+                                  : Duration(milliseconds: 450 + percent * 6),
+                              curve: Curves.easeOutCubic,
+                              builder: (context, shown, _) => SizedBox(
+                                width: 92,
+                                height: 92,
+                                child: CustomPaint(
+                                  painter: _RingPainter(
+                                    fraction: (shown / 100).clamp(0.0, 1.0),
+                                    color: tier.color,
+                                    track: tier.tint,
+                                  ),
+                                  child: Center(
+                                    child: Text(
+                                      '${shown.round()}%',
+                                      style: TextStyle(
+                                        fontSize: 21,
+                                        fontWeight: FontWeight.w700,
+                                        letterSpacing: -0.42,
+                                        color: tier.color,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            Text(
+                              _s(l, 'success_rate', 'Success rate')
+                                  .toUpperCase(),
+                              style: const TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                // Measured off the frame — lighter than
+                                // textMuted.
+                                color: Color(0xFFB6B1B3),
+                                letterSpacing: -0.22,
+                              ),
+                            ),
+                            const SizedBox(height: 24),
+                          ],
                         ),
                       ),
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      _s(l, 'success_rate', 'Success rate').toUpperCase(),
-                      style: const TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                        // Measured off the frame — lighter than textMuted.
-                        color: Color(0xFFB6B1B3),
-                        letterSpacing: -0.22,
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -202,6 +212,157 @@ class _ExerciseEndScreenState extends State<ExerciseEndScreen> {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The tier's artwork (FR-15.23), sized to the room this screen has.
+///
+/// Two shapes, one rule. The trophy and the woman at her laptop are
+/// square once their empty margins are discounted (ink aspect 1.06 and
+/// 1.07), so they are sized off the available HEIGHT — a tall phone gets
+/// a bigger picture, a short one still fits — bounded so that even the
+/// smallest phone shows more artwork than the still it replaced.
+///
+/// The 80+ rocket is the exception: a landscape flying pose, ink aspect
+/// 1.86, with the jetpack flame at one end and an outstretched fist at
+/// the other. There is no square crop of it that does not amputate both,
+/// so it runs the full WIDTH of the screen instead, escaping the 24pt
+/// gutter the text keeps. Wider than the still it replaces, and
+/// necessarily shorter.
+///
+/// The floor below therefore does NOT apply to the rocket, and cannot:
+/// it is bound by the screen, not by the room. Its area equals the
+/// 249x240 still at a screen width of 347dp, so on anything narrower —
+/// a 320dp hdpi phone, the bottom of this market — it is wider than the
+/// still but smaller in area. The alternative is scaling past the screen
+/// edge and clipping, which costs the flame and the fist, the two things
+/// that make the pose read. Left deliberately: a wide picture on a
+/// narrow phone is short, and no arrangement of this artwork fixes that.
+///
+/// In both cases what is fitted is the [_Tier.ink] rectangle rather than
+/// the composition's canvas, and the rest is scaled off the edge and
+/// clipped. That is the difference between artwork that fills the slot
+/// and artwork floating in the middle of its own empty margin.
+class _Illustration extends StatelessWidget {
+  const _Illustration({
+    required this.tier,
+    required this.room,
+    required this.still,
+  });
+
+  final _Tier tier;
+
+  /// Height available to the whole scrolling block.
+  final double room;
+
+  final bool still;
+
+  @override
+  Widget build(BuildContext context) {
+    final canvas = tier.canvas;
+    final ink = tier.ink;
+    final inkSize = Size(ink.width * canvas.width, ink.height * canvas.height);
+    final wide = inkSize.aspectRatio > 1.3;
+
+    // A fraction of the room rather than "the room minus everything
+    // below": the copy under this is translated, and Turkmen and Russian
+    // wrap to more lines than the English such a number would have been
+    // measured against. The scroll view absorbs whatever it gets wrong.
+    //
+    // The floor is 270, not the 240 the still was drawn at, and the
+    // difference is the point of it. A still fills its box; an animation
+    // fills 96% of one side and ~91% of the other, so a 240 box would
+    // put 230x217 of artwork on screen against the still's 249x240 —
+    // SMALLER than what it replaced, which is the one outcome the client
+    // ruled out. 270 puts 259x245 on screen, and the brief was «make
+    // bigger than current PNG». The ceiling is 320 so a tall phone does
+    // not turn the artwork into a poster.
+    final side = (room * 0.48).clamp(270.0, 320.0);
+    final boxWidth = wide ? MediaQuery.sizeOf(context).width : side;
+    final boxHeight = wide ? boxWidth / inkSize.aspectRatio : side;
+
+    // Fit the INK to the box. The 4% held back is margin against a frame
+    // the measurement sampled past — a stray confetti flake reaching
+    // further than any frame that was rasterised would be clipped, and
+    // the cost of the insurance is invisible.
+    final scale = 0.96 *
+        math.min(boxWidth / inkSize.width, boxHeight / inkSize.height);
+
+    // Move the ink's centre onto the box's centre. OverflowBox centres
+    // the canvas, so this is the distance between the two centres.
+    final shift = Offset(
+      (canvas.width / 2 - (ink.left * canvas.width + inkSize.width / 2)) *
+          scale,
+      (canvas.height / 2 - (ink.top * canvas.height + inkSize.height / 2)) *
+          scale,
+    );
+
+    return SizedBox(
+      width: double.infinity,
+      height: boxHeight,
+      child: Center(
+        child: SizedBox(
+          width: boxWidth,
+          height: boxHeight,
+          child: ClipRect(
+            child: OverflowBox(
+              maxWidth: double.infinity,
+              maxHeight: double.infinity,
+              child: Transform.translate(
+                offset: shift,
+                child: SizedBox(
+                  width: canvas.width * scale,
+                  height: canvas.height * scale,
+                  child: Lottie.asset(
+                    tier.animation,
+                    fit: BoxFit.fill,
+                    // MediaQuery.disableAnimations: the artwork still
+                    // shows, it just holds its first frame — the same
+                    // bargain as the score ring and the six glyphs of
+                    // FR-15.21.
+                    animate: !still,
+                    // Not the package's default of `true` for every
+                    // tier — see [_Tier.loops]. The trophy is a build-in
+                    // and looping it snaps the figure back down the
+                    // podium every six seconds.
+                    repeat: tier.loops,
+                    // Parse the composition on a background isolate.
+                    // The package defaults this to false, which runs
+                    // LottieCompositionParser synchronously on the UI
+                    // isolate — and the first build of this widget
+                    // happens DURING the pushReplacement transition,
+                    // alongside the result clip starting and the
+                    // FR-15.22 ring tween running. Tokenising 248 KB of
+                    // JSON there is exactly the stutter this screen can
+                    // least afford, and it would land on the cheapest
+                    // phones hardest. Costs a frame or two before the
+                    // artwork appears; the screen is not blank behind
+                    // it, the copy and the ring are already there.
+                    backgroundLoading: true,
+                    // A composition that fails to parse falls back to
+                    // the still this screen shipped with, which is
+                    // strictly better than the empty box the old
+                    // builder left. It undoes [shift] first, because a
+                    // still has none of the empty margin the crop above
+                    // exists to remove.
+                    errorBuilder: (_, _, _) => Transform.translate(
+                      offset: -shift,
+                      child: Center(
+                        child: SizedBox(
+                          width: boxWidth,
+                          height: boxHeight,
+                          child: Image.asset(tier.asset, fit: BoxFit.contain),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
         ),
       ),
     );
@@ -234,10 +395,72 @@ extension on _Tier {
         _Tier.bad => const Color(0xFFFCE8E8),
       };
 
+  /// The still this tier shipped with, now only a fallback for an
+  /// animation that fails to parse.
   String get asset => switch (this) {
         _Tier.good => 'assets/illustrations/end-good.png',
         _Tier.normal => 'assets/illustrations/end-normal.png',
         _Tier.bad => 'assets/illustrations/end-bad.png',
+      };
+
+  /// FR-15.23. Client-chosen, Lottie Simple License (commercial use
+  /// granted, attribution encouraged but not required). Each was run
+  /// through a metadata strip and a 3dp precision pass — verified
+  /// pixel-identical to the originals across 40 sampled frames — which
+  /// is why these are the sizes they are.
+  String get animation => switch (this) {
+        _Tier.good => 'assets/illustrations/end-good.json',
+        _Tier.normal => 'assets/illustrations/end-normal.json',
+        _Tier.bad => 'assets/illustrations/end-bad.json',
+      };
+
+  /// Whether this composition's last frame returns to its first, and so
+  /// may be looped.
+  ///
+  /// MEASURED, not assumed: each composition's first and last frames were
+  /// rasterised and diffed. The woman is a true cycle (0.00% of pixels
+  /// differ). The rocket's seam is 0.68%, twenty times smaller than the
+  /// difference between its first and middle frames — the speed-lines
+  /// resetting, invisible in motion. The TROPHY is neither: 9.23% of
+  /// pixels differ, two thirds as much as its own mid-point, because it
+  /// is a build-in — the figure climbs the podium over about three
+  /// seconds and then holds. Looping it teleports the figure 153 units
+  /// back down the canvas and snaps three layers through 43-61 degrees,
+  /// every six seconds, for as long as the screen is open. So it plays
+  /// once and holds the pose it was drawn to end on.
+  bool get loops => switch (this) {
+        _Tier.good => true,
+        _Tier.normal => false,
+        _Tier.bad => true,
+      };
+
+  /// The composition's own canvas, in its own units.
+  Size get canvas => switch (this) {
+        _Tier.good => const Size(1010, 550),
+        _Tier.normal => const Size(1200, 1200),
+        _Tier.bad => const Size(512, 512),
+      };
+
+  /// The part of that canvas which actually contains ink, as a fraction
+  /// of it.
+  ///
+  /// Lottie compositions are routinely authored with generous empty
+  /// margins, and these three are no exception — the trophy spends 43%
+  /// of its canvas on nothing, the woman 25%, the rocket 15%. Fitting
+  /// the whole canvas into the slot would spend that emptiness on
+  /// screen, which is most of why the stills looked bigger than the
+  /// animations replacing them.
+  ///
+  /// MEASURED, not eyeballed: each composition was rasterised at 45
+  /// points across its timeline and scanned for non-white pixels, and
+  /// the union taken. `getBBox` was tried first and is wrong here — on
+  /// the trophy, which is built from precomps, it returns the clip
+  /// rectangle at every frame and reports a shape the artwork does not
+  /// have.
+  Rect get ink => switch (this) {
+        _Tier.good => const Rect.fromLTRB(0.0356, 0.0436, 0.9653, 0.9618),
+        _Tier.normal => const Rect.fromLTRB(0.1142, 0.1258, 0.8925, 0.8592),
+        _Tier.bad => const Rect.fromLTRB(0.0039, 0.0820, 0.9004, 0.9160),
       };
 
   String titleKey(bool quiz) => switch (this) {

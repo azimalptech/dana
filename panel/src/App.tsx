@@ -44,11 +44,56 @@ const NAV: Record<'superadmin' | 'admin', NavEntry[]> = {
   ],
 };
 
+/** Below this width the sidebar stops being a column and becomes a drawer. */
+const DRAWER_BELOW = 900;
+
+const NAV_KEY = 'panel_nav_open';
+
+/**
+ * Whether the menu starts open (FR-15.25).
+ *
+ * Remembered per browser, because on a desktop it is a layout preference
+ * and re-hiding it on every load would be a chore. With nothing
+ * remembered the width decides: open on a desktop, where 232px costs
+ * nothing, closed on a phone, where it would cover the page.
+ */
+function initialNavOpen(): boolean {
+  try {
+    const saved = localStorage.getItem(NAV_KEY);
+    if (saved !== null) return saved === '1';
+  } catch {
+    // Private mode, or site data blocked. Fall through to the width.
+  }
+
+  return typeof window === 'undefined' || window.innerWidth >= DRAWER_BELOW;
+}
+
 export default function App() {
   const [user, setUser] = useState<PanelUser | null>(null);
   const [booting, setBooting] = useState(true);
   const [unreachable, setUnreachable] = useState(false);
   const [page, setPage] = useState<Page>('progress');
+  const [navOpen, setNavOpen] = useState(initialNavOpen);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(NAV_KEY, navOpen ? '1' : '0');
+    } catch {
+      // Nothing to do — the menu still works, it just will not be
+      // remembered next time.
+    }
+  }, [navOpen]);
+
+  // Escape closes the drawer. On a phone it covers the page, so there
+  // has to be a way out that is not the backdrop.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && window.innerWidth < DRAWER_BELOW) setNavOpen(false);
+    };
+
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   const boot = useCallback(() => {
     if (!api.isSignedIn()) {
@@ -108,9 +153,40 @@ export default function App() {
   // `page` from a previous session cannot show something it should not.
   const current = visible.some((entry) => entry.id === page) ? page : visible[0].id;
 
+  const currentLabel = visible.find((entry) => entry.id === current)?.label ?? '';
+
   return (
-    <div className="shell">
-      <aside className="sidebar">
+    <div className={`shell${navOpen ? '' : ' nav-closed'}`}>
+      {/* One control for every screen (FR-15.25). On a desktop it hides
+          and restores the column; below 900px the same button opens the
+          sidebar over the page as a drawer. */}
+      <header className="topbar">
+        <button
+          type="button"
+          className="nav-toggle"
+          aria-label={navOpen ? 'Скрыть меню' : 'Показать меню'}
+          aria-expanded={navOpen}
+          onClick={() => setNavOpen((open) => !open)}
+        >
+          <span aria-hidden="true">{navOpen ? '✕' : '☰'}</span>
+        </button>
+        <span className="topbar-title">{currentLabel}</span>
+      </header>
+
+      {/* Tapping away closes the drawer. Rendered only when open, and
+          only visible under the drawer breakpoint — on a desktop the
+          sidebar takes its own column and dims nothing. */}
+      {navOpen && (
+        <button
+          type="button"
+          className="nav-backdrop"
+          aria-label="Закрыть меню"
+          tabIndex={-1}
+          onClick={() => setNavOpen(false)}
+        />
+      )}
+
+      <aside className="sidebar" aria-hidden={!navOpen}>
         <div className="brand">dana</div>
         <div className="who">
           {user.full_name}
@@ -122,15 +198,20 @@ export default function App() {
           <button
             key={entry.id}
             className={`nav-item${current === entry.id ? ' active' : ''}`}
-            onClick={() => setPage(entry.id)}
+            onClick={() => {
+              setPage(entry.id);
+              // On a phone the drawer covers what was just chosen, so
+              // choosing dismisses it. On a desktop it is a column and
+              // must stay put.
+              if (window.innerWidth < DRAWER_BELOW) setNavOpen(false);
+            }}
           >
             {entry.label}
           </button>
         ))}
 
         <button
-          className="nav-item"
-          style={{ marginTop: 24, opacity: 0.7 }}
+          className="nav-item nav-signout"
           onClick={async () => {
             await api.logout();
             setUser(null);

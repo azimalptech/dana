@@ -18,6 +18,7 @@ dependencies:
   flutter_svg: ^2.0.10
   flutter_tts: ^4.2.5
   audioplayers: ^6.8.1
+  lottie: ^3.5.1
 
 dev_dependencies:
   flutter_test:
@@ -42,8 +43,11 @@ flutter:
   assets:
     - assets/icons/
     - assets/brand/
-    # Memoji end-screen art cropped from the client's design file
-    # (docs/design/redesign-2026-08). Exercise and exam share them.
+    # End-screen art, shared by exercise and exam. The .json are the
+    # client-chosen Lottie animations for the three tiers (FR-15.23,
+    # run through tool/optimize_lottie.mjs); the .png are the memoji
+    # stills cropped from the design file (docs/design/redesign-2026-08),
+    # kept as the fallback for a composition that fails to parse.
     - assets/illustrations/
     # Interface sounds: right, wrong, and the three result tiers
     # (FR-15.20). Client-supplied.

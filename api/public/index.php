@@ -23,6 +23,7 @@ use Dana\Http\Controllers\SectionController;
 use Dana\Http\Controllers\StudentController;
 use Dana\Http\Controllers\TeacherController;
 use Dana\Http\Middleware\AuthMiddleware;
+use Dana\Http\Middleware\CorsMiddleware;
 use Dana\Http\Middleware\JsonErrorMiddleware;
 use Dana\Support\Config;
 use Dana\Support\LoggerFactory;
@@ -98,6 +99,19 @@ $app = AppFactory::create();
 $app->addBodyParsingMiddleware();
 $app->addRoutingMiddleware();
 $app->add($container->get(JsonErrorMiddleware::class));
+
+// FR-15.24: cross-origin access for a panel on its own subdomain.
+// Added BEFORE the hardening closure below, which means it runs just
+// inside it — so preflights still get the security headers, while
+// sitting outside the routing middleware, which is what lets an OPTIONS
+// request be answered at all (no endpoint routes one, so reaching the
+// router would raise 405 and the browser would block the real call).
+// Off entirely when CORS_ALLOWED_ORIGINS is unset, so a single-origin
+// deployment is byte-for-byte unchanged.
+$app->add(new CorsMiddleware(
+    Config::instance()->get('CORS_ALLOWED_ORIGINS', '') ?? '',
+    $app->getResponseFactory(),
+));
 
 // Baseline hardening on every response. `no-store` matters most: replies
 // carry per-student data and revealed credentials, and must never be
