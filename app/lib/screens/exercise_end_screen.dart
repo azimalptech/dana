@@ -56,6 +56,7 @@ class _ExerciseEndScreenState extends State<ExerciseEndScreen> {
     final percent = widget.percent;
     final isQuiz = widget.isQuiz;
     final l = AppState.instance.l;
+    final still = MediaQuery.maybeOf(context)?.disableAnimations ?? false;
     final tier = percent >= 80
         ? _Tier.good
         : percent >= 50
@@ -128,23 +129,46 @@ class _ExerciseEndScreenState extends State<ExerciseEndScreen> {
                       ),
                     ),
                     const SizedBox(height: 36),
-                    SizedBox(
-                      width: 92,
-                      height: 92,
-                      child: CustomPaint(
-                        painter: _RingPainter(
-                          fraction: (percent / 100).clamp(0.0, 1.0),
-                          color: tier.color,
-                          track: tier.tint,
-                        ),
-                        child: Center(
-                          child: Text(
-                            '$percent%',
-                            style: TextStyle(
-                              fontSize: 21,
-                              fontWeight: FontWeight.w700,
-                              letterSpacing: -0.42,
-                              color: tier.color,
+                    // FR-15.22: the ring sweeps up to the score and
+                    // the number climbs with it, so the student
+                    // watches the result arrive instead of finding it
+                    // already sitting there.
+                    //
+                    // ONE tween drives both, so the arc and the digits
+                    // can never disagree, and it ends on exactly the
+                    // server's number — this screen computes no score
+                    // of its own (NFR-5). The COLOUR does not animate:
+                    // the tier is fixed by the final percent, so a 92%
+                    // ring is green from the first frame rather than
+                    // travelling red -> amber -> green and implying a
+                    // verdict that was never in doubt.
+                    TweenAnimationBuilder<double>(
+                      tween: Tween(begin: 0, end: percent.toDouble()),
+                      // Longer for a higher score: a full ring that
+                      // takes the same time as a quarter one has to
+                      // race, and the climb is the reward.
+                      duration: still
+                          ? Duration.zero
+                          : Duration(milliseconds: 450 + percent * 6),
+                      curve: Curves.easeOutCubic,
+                      builder: (context, shown, _) => SizedBox(
+                        width: 92,
+                        height: 92,
+                        child: CustomPaint(
+                          painter: _RingPainter(
+                            fraction: (shown / 100).clamp(0.0, 1.0),
+                            color: tier.color,
+                            track: tier.tint,
+                          ),
+                          child: Center(
+                            child: Text(
+                              '${shown.round()}%',
+                              style: TextStyle(
+                                fontSize: 21,
+                                fontWeight: FontWeight.w700,
+                                letterSpacing: -0.42,
+                                color: tier.color,
+                              ),
                             ),
                           ),
                         ),
