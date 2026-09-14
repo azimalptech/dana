@@ -168,7 +168,13 @@ export default function App() {
           aria-expanded={navOpen}
           onClick={() => setNavOpen((open) => !open)}
         >
-          <span aria-hidden="true">{navOpen ? '✕' : '☰'}</span>
+          {/* Always the burger, never a ✕ (client, 2026-09-14). The
+              glyph names the menu rather than reporting its state, so it
+              stays one recognisable control instead of turning into a
+              close button that reads as "dismiss this page". State is
+              still carried for screen readers by aria-expanded and the
+              label above. */}
+          <span aria-hidden="true">☰</span>
         </button>
         <span className="topbar-title">{currentLabel}</span>
       </header>
