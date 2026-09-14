@@ -157,3 +157,79 @@ class DanaIcon extends StatelessWidget {
     );
   }
 }
+
+/// Crossfades one icon into another as a state flips (FR-15.21).
+///
+/// Five places in the app draw a glyph that has TWO pieces of
+/// artwork — the four bottom-nav tabs (`nav_x.svg` / `nav_x_active.svg`)
+/// and the vocabulary bookmark (`bookmark_outline` / `bookmark_filled`).
+/// Every one of them used to swap in a single frame. Both drawings are
+/// kept mounted and their opacity crossed, so the outline dissolves into
+/// the filled shape rather than being replaced by it — and [lift] rises
+/// the active one slightly, which is what carries the eye.
+///
+/// A crossfade, not an [AnimatedSwitcher]: the switcher would build and
+/// dispose an SvgPicture on every tap, re-parsing the file each time.
+/// Two long-lived children simply change alpha.
+class DanaIconSwap extends StatelessWidget {
+  const DanaIconSwap({
+    super.key,
+    required this.active,
+    required this.idleAsset,
+    required this.activeAsset,
+    required this.idleColor,
+    required this.activeColor,
+    this.size = 24,
+    this.frame = 24,
+    this.lift = 0,
+    this.duration = const Duration(milliseconds: 220),
+  });
+
+  final bool active;
+  final String idleAsset;
+  final String activeAsset;
+  final Color idleColor;
+  final Color activeColor;
+  final double size;
+  final double frame;
+
+  /// Pixels the active glyph rises by. 0 for anything that is not a tab.
+  final double lift;
+
+  final Duration duration;
+
+  @override
+  Widget build(BuildContext context) {
+    // Reduce-motion gets the old instant swap, which was never wrong —
+    // only dull.
+    final still = MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+    final d = still ? Duration.zero : duration;
+
+    return SizedBox(
+      width: size,
+      height: size,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          AnimatedOpacity(
+            opacity: active ? 0 : 1,
+            duration: d,
+            curve: Curves.easeOut,
+            child: DanaIcon(idleAsset, size: size, frame: frame, color: idleColor),
+          ),
+          AnimatedSlide(
+            offset: Offset(0, active ? -lift / size : 0),
+            duration: d,
+            curve: Curves.easeOutCubic,
+            child: AnimatedOpacity(
+              opacity: active ? 1 : 0,
+              duration: d,
+              curve: Curves.easeOut,
+              child: DanaIcon(activeAsset, size: size, frame: frame, color: activeColor),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}

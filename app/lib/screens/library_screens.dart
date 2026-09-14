@@ -379,10 +379,12 @@ class _WordRowState extends State<WordRow> {
               behavior: HitTestBehavior.opaque,
               child: Padding(
                 padding: const EdgeInsets.only(left: 12),
-                child: _bookmarked
-                    ? const DanaIcon(DanaIcons.bookmarkFilled,
-                        color: DanaColors.brand)
-                    : const DanaIcon(DanaIcons.bookmarkOutline),
+                // FR-15.21. The two files are the SAME path — the
+                // outline is stroke-only, the filled adds a fill — so
+                // this reads as one bookmark filling in rather than
+                // two glyphs trading places. The pop is what makes
+                // saving feel like it landed (FR-15.3 kept the toast).
+                child: _BookmarkGlyph(saved: _bookmarked),
               ),
             ),
       onTap: () => showWordCard(context, widget.item),
@@ -683,3 +685,58 @@ class _ModalLabel extends StatelessWidget {
 // The client removed the guide from the product entirely (FR-13.26):
 // grammar exists only as a practice-module section. The explanation data
 // stays in the database, unread.
+
+/// The saved/not-saved bookmark, crossfading with a small overshoot.
+///
+/// Stateful only to own the pop: [DanaIconSwap] handles the dissolve,
+/// and this scales the whole thing up and back when the word is SAVED —
+/// not when it is un-saved, where a flourish would be celebrating the
+/// wrong thing.
+class _BookmarkGlyph extends StatefulWidget {
+  const _BookmarkGlyph({required this.saved});
+
+  final bool saved;
+
+  @override
+  State<_BookmarkGlyph> createState() => _BookmarkGlyphState();
+}
+
+class _BookmarkGlyphState extends State<_BookmarkGlyph>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _pop = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 260),
+  );
+
+  late final Animation<double> _scale = TweenSequence<double>([
+    TweenSequenceItem(tween: Tween(begin: 1.0, end: 1.25), weight: 45),
+    TweenSequenceItem(tween: Tween(begin: 1.25, end: 1.0), weight: 55),
+  ]).animate(CurvedAnimation(parent: _pop, curve: Curves.easeOut));
+
+  @override
+  void didUpdateWidget(_BookmarkGlyph old) {
+    super.didUpdateWidget(old);
+    if (widget.saved && !old.saved) _pop.forward(from: 0);
+  }
+
+  @override
+  void dispose() {
+    _pop.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final glyph = DanaIconSwap(
+      active: widget.saved,
+      idleAsset: DanaIcons.bookmarkOutline,
+      activeAsset: DanaIcons.bookmarkFilled,
+      idleColor: DanaColors.textMuted,
+      activeColor: DanaColors.brand,
+    );
+
+    if (MediaQuery.maybeOf(context)?.disableAnimations ?? false) return glyph;
+
+    return ScaleTransition(scale: _scale, child: glyph);
+  }
+}

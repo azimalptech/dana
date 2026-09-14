@@ -1,11 +1,13 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../core/api.dart';
-import '../core/sfx.dart';
 import '../core/audio.dart';
 import '../core/icons.dart';
 import '../core/l10n.dart';
+import '../core/sfx.dart';
 import '../core/study_tracker.dart';
 import '../core/theme.dart';
 import '../main.dart';
@@ -1574,25 +1576,55 @@ class _AudioIndicator extends StatelessWidget {
     return ValueListenableBuilder<String?>(
       valueListenable: AudioBus.instance.loading,
       builder: (context, loading, _) {
-        if (loading == url) {
-          return SizedBox(
-            width: size,
-            height: size,
-            child: Padding(
-              padding: EdgeInsets.all(size * 0.15),
-              child: CircularProgressIndicator(strokeWidth: 2, color: color),
-            ),
-          );
-        }
         return ValueListenableBuilder<String?>(
           valueListenable: AudioBus.instance.playing,
           builder: (context, playing, _) {
-            if (playing == url) return _Waveform(color: color, size: size);
-            return DanaIcon(
-              DanaIcons.volume2,
-              size: size,
-              frame: 20,
-              color: color,
+            // FR-15.21: speaker -> spinner -> bars used to be two
+            // hard cuts. The tile is the biggest thing on a listening
+            // question, so the student saw it flick twice for every
+            // clip. Crossfaded, the three states read as one control
+            // changing rather than three widgets taking turns.
+            final Widget child;
+
+            if (loading == url) {
+              child = SizedBox(
+                key: const ValueKey('loading'),
+                width: size,
+                height: size,
+                child: Padding(
+                  padding: EdgeInsets.all(size * 0.15),
+                  child: CircularProgressIndicator(strokeWidth: 2, color: color),
+                ),
+              );
+            } else if (playing == url) {
+              child = _Waveform(
+                key: const ValueKey('playing'),
+                color: color,
+                size: size,
+              );
+            } else {
+              child = DanaIcon(
+                DanaIcons.volume2,
+                key: const ValueKey('idle'),
+                size: size,
+                frame: 20,
+                color: color,
+              );
+            }
+
+            final still = MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+
+            return AnimatedSwitcher(
+              duration: still
+                  ? Duration.zero
+                  : const Duration(milliseconds: 180),
+              // Both states share the box, so the outgoing one fades
+              // in place instead of resizing the tile around it.
+              layoutBuilder: (current, previous) => Stack(
+                alignment: Alignment.center,
+                children: [...previous, ?current],
+              ),
+              child: child,
             );
           },
         );
@@ -1601,42 +1633,124 @@ class _AudioIndicator extends StatelessWidget {
   }
 }
 
-/// The static waveform shown while audio plays (Test-audio-playing): a row
-/// of rounded vertical bars in the brand colour.
-class _Waveform extends StatelessWidget {
-  const _Waveform({required this.color, required this.size});
+/// The waveform shown while audio plays (Test-audio-playing): a row of
+/// rounded vertical bars in the brand colour — and they move (FR-15.21).
+///
+/// This widget exists only while its clip is playing: [_AudioIndicator]
+/// swaps it in when AudioBus.playing matches the url and back out when it
+/// clears. So the controller's life is the sound's life, and nothing
+/// ticks in silence.
+///
+/// Drawn in ONE CustomPaint rather than six animated Containers. Six
+/// Containers changing height would relayout the Row on every frame, at
+/// 60fps, inside a 24px glyph that sits in a scrolling option list. As a
+/// painter it is one repaint and no layout at all — which is the
+/// difference that matters on the cheap Androids this ships to.
+class _Waveform extends StatefulWidget {
+  const _Waveform({super.key, required this.color, required this.size});
 
   final Color color;
   final double size;
 
-  static const _ratios = [0.4, 0.7, 1.0, 0.55, 0.85, 0.35];
+  /// The Figma silhouette. The animation modulates DOWN from these and
+  /// never above, so the designed shape is the peak of every cycle.
+  static const ratios = [0.4, 0.7, 1.0, 0.55, 0.85, 0.35];
+
+  @override
+  State<_Waveform> createState() => _WaveformState();
+}
+
+class _WaveformState extends State<_Waveform>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 900),
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    _controller.repeat();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    final bar = size * 0.1;
+    // Someone who has asked their phone to reduce motion gets the still
+    // silhouette. This is the first animation in the product, so it is
+    // the place to start honouring that.
+    final still = MediaQuery.maybeOf(context)?.disableAnimations ?? false;
 
-    return SizedBox(
-      width: size,
-      height: size,
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          for (var i = 0; i < _ratios.length; i++) ...[
-            if (i > 0) SizedBox(width: bar * 0.6),
-            Container(
-              width: bar,
-              height: size * _ratios[i],
-              decoration: BoxDecoration(
-                color: color,
-                borderRadius: BorderRadius.circular(bar),
-              ),
+    return RepaintBoundary(
+      child: SizedBox(
+        width: widget.size,
+        height: widget.size,
+        child: AnimatedBuilder(
+          animation: _controller,
+          builder: (context, _) => CustomPaint(
+            painter: _WaveformPainter(
+              color: widget.color,
+              t: still ? 0.25 : _controller.value,
+              still: still,
             ),
-          ],
-        ],
+          ),
+        ),
       ),
     );
   }
+}
+
+class _WaveformPainter extends CustomPainter {
+  const _WaveformPainter({
+    required this.color,
+    required this.t,
+    required this.still,
+  });
+
+  final Color color;
+
+  /// 0..1, one full cycle.
+  final double t;
+  final bool still;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final bar = size.width * 0.1;
+    final gap = bar * 0.6;
+    final ratios = _Waveform.ratios;
+    final total = ratios.length * bar + (ratios.length - 1) * gap;
+
+    var x = (size.width - total) / 2;
+    final paint = Paint()..color = color;
+
+    for (var i = 0; i < ratios.length; i++) {
+      // Each bar a sixth of a cycle behind the last, so the six ripple
+      // instead of pumping together. 0.75 + 0.25*sin spans [0.5, 1.0] of
+      // the designed ratio — never above it, so the bar cannot flat-top
+      // against the box and freeze at full height for half the cycle.
+      final phase = still ? 1.0 : 0.75 + 0.25 * math.sin(2 * math.pi * (t + i / ratios.length));
+      final height = size.height * ratios[i] * phase;
+
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromLTWH(x, (size.height - height) / 2, bar, height),
+          Radius.circular(bar),
+        ),
+        paint,
+      );
+
+      x += bar + gap;
+    }
+  }
+
+  @override
+  bool shouldRepaint(_WaveformPainter old) =>
+      old.t != t || old.color != color || old.still != still;
 }
 
 /// The audio-stem tile (Test-audio / Test-audio-playing): a brand-tinted

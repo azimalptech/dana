@@ -127,10 +127,17 @@ class DanaTabBar extends StatelessWidget {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        DanaIcon(
-                          i == index ? items[i].$2 : items[i].$1,
+                        // FR-15.21: the outline dissolves into the
+                        // filled glyph and rises, instead of the two
+                        // swapping in a single frame.
+                        DanaIconSwap(
+                          active: i == index,
+                          idleAsset: items[i].$1,
+                          activeAsset: items[i].$2,
+                          idleColor: DanaColors.textMuted,
+                          activeColor: DanaColors.brand,
                           size: 24,
-                          color: i == index ? DanaColors.brand : DanaColors.textMuted,
+                          lift: 2,
                         ),
                         const SizedBox(height: 4),
                         Text(
