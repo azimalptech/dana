@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 
+import NavIcon, { type NavIconName } from './NavIcon';
 import { ApiError, api, type PanelUser } from './api';
 import Classrooms from './pages/Classrooms';
 import Content from './pages/Content';
@@ -15,6 +16,8 @@ type Page = 'progress' | 'people' | 'classrooms' | 'notify' | 'content' | 'curri
 interface NavEntry {
   id: Page;
   label: string;
+  /** Shown beside the label, and alone in the collapsed rail. */
+  icon: NavIconName;
 }
 
 /**
@@ -31,16 +34,16 @@ const NAV: Record<'superadmin' | 'admin', NavEntry[]> = {
   // Прогресс is deliberately absent for the superadmin (client decision,
   // 2026-08-13) — their job here is centres and content, not metrics.
   superadmin: [
-    { id: 'people', label: 'Центры и сотрудники' },
-    { id: 'curriculum', label: 'Программа' },
-    { id: 'content', label: 'Контент' },
-    { id: 'data', label: 'База данных' },
+    { id: 'people', label: 'Центры и сотрудники', icon: 'people' },
+    { id: 'curriculum', label: 'Программа', icon: 'curriculum' },
+    { id: 'content', label: 'Контент', icon: 'content' },
+    { id: 'data', label: 'База данных', icon: 'data' },
   ],
   admin: [
-    { id: 'progress', label: 'Прогресс' },
-    { id: 'people', label: 'Преподаватели' },
-    { id: 'classrooms', label: 'Классы' },
-    { id: 'notify', label: 'Уведомления' },
+    { id: 'progress', label: 'Прогресс', icon: 'progress' },
+    { id: 'people', label: 'Преподаватели', icon: 'people' },
+    { id: 'classrooms', label: 'Классы', icon: 'classrooms' },
+    { id: 'notify', label: 'Уведомления', icon: 'notify' },
   ],
 };
 
@@ -48,6 +51,33 @@ const NAV: Record<'superadmin' | 'admin', NavEntry[]> = {
 const DRAWER_BELOW = 900;
 
 const NAV_KEY = 'panel_nav_open';
+
+/**
+ * True while the sidebar is an off-canvas drawer rather than a column.
+ *
+ * Needed because "closed" means two different things now. On a desktop
+ * it is a 72px rail that is still on screen and still usable, so hiding
+ * it from assistive technology would be wrong; below the breakpoint it
+ * is genuinely off-canvas and must be hidden. A media query cannot say
+ * which, so the component has to know.
+ */
+function useIsDrawer(): boolean {
+  const query = `(max-width: ${DRAWER_BELOW - 1}px)`;
+  const [isDrawer, setIsDrawer] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia(query).matches,
+  );
+
+  useEffect(() => {
+    const mql = window.matchMedia(query);
+    const onChange = (e: MediaQueryListEvent) => setIsDrawer(e.matches);
+
+    setIsDrawer(mql.matches);
+    mql.addEventListener('change', onChange);
+    return () => mql.removeEventListener('change', onChange);
+  }, [query]);
+
+  return isDrawer;
+}
 
 /**
  * Whether the menu starts open (FR-15.25).
@@ -74,6 +104,7 @@ export default function App() {
   const [unreachable, setUnreachable] = useState(false);
   const [page, setPage] = useState<Page>('progress');
   const [navOpen, setNavOpen] = useState(initialNavOpen);
+  const isDrawer = useIsDrawer();
 
   useEffect(() => {
     try {
@@ -157,9 +188,10 @@ export default function App() {
 
   return (
     <div className={`shell${navOpen ? '' : ' nav-closed'}`}>
-      {/* One control for every screen (FR-15.25). On a desktop it hides
-          and restores the column; below 900px the same button opens the
-          sidebar over the page as a drawer. */}
+      {/* Below the drawer breakpoint the sidebar is off-canvas, so there
+          is no edge to hang the chevron on and this burger opens it.
+          Hidden on a desktop, where the chevron on the sidebar's own
+          edge does the job (FR-15.25). */}
       <header className="topbar">
         <button
           type="button"
@@ -192,18 +224,55 @@ export default function App() {
         />
       )}
 
-      <aside className="sidebar" aria-hidden={!navOpen}>
-        <div className="brand">dana</div>
-        <div className="who">
-          {user.full_name}
-          <br />
-          {isSuperadmin ? 'Суперадмин' : 'Администратор центра'}
+      {/* Hidden from assistive technology only when it is actually off
+          the screen. Collapsed on a desktop is a visible rail. */}
+      <aside className="sidebar" aria-hidden={isDrawer && !navOpen}>
+        {/* Wordmark and role, both gone in the collapsed rail — there is
+            no width for them, and the nav icons below say where you
+            are. */}
+        <div className="brand-row">
+          <div className="brand-text">
+            <div className="brand-name">dana</div>
+            <div className="brand-who">
+              {isSuperadmin ? 'Суперадмин' : 'Администратор центра'}
+            </div>
+          </div>
         </div>
+
+        {/* The chevron rides the sidebar's right edge, half over the
+            boundary, so it belongs to the menu rather than to the page —
+            and it points the way the menu will move. */}
+        <button
+          type="button"
+          className="nav-edge"
+          aria-label={navOpen ? 'Свернуть меню' : 'Развернуть меню'}
+          aria-expanded={navOpen}
+          onClick={() => setNavOpen((open) => !open)}
+        >
+          <svg
+            viewBox="0 0 24 24"
+            width="14"
+            height="14"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+            focusable="false"
+          >
+            <path d={navOpen ? 'M15 18l-6-6 6-6' : 'M9 18l6-6-6-6'} />
+          </svg>
+        </button>
 
         {visible.map((entry) => (
           <button
             key={entry.id}
             className={`nav-item${current === entry.id ? ' active' : ''}`}
+            // The rail shows no label, so the tooltip and the accessible
+            // name have to carry it there.
+            title={entry.label}
+            aria-label={entry.label}
             onClick={() => {
               setPage(entry.id);
               // On a phone the drawer covers what was just chosen, so
@@ -212,18 +281,22 @@ export default function App() {
               if (window.innerWidth < DRAWER_BELOW) setNavOpen(false);
             }}
           >
-            {entry.label}
+            <NavIcon name={entry.icon} />
+            <span className="nav-label">{entry.label}</span>
           </button>
         ))}
 
         <button
           className="nav-item nav-signout"
+          title="Выйти"
+          aria-label="Выйти"
           onClick={async () => {
             await api.logout();
             setUser(null);
           }}
         >
-          Выйти
+          <NavIcon name="signout" />
+          <span className="nav-label">Выйти</span>
         </button>
       </aside>
 

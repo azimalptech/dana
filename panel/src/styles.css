@@ -136,7 +136,7 @@ tr:last-child td {
 
 .shell {
   display: grid;
-  grid-template-columns: 232px 1fr;
+  grid-template-columns: 248px 1fr;
   /* Rows MUST be explicit, and every child placed. The topbar carries
      `grid-column: 2`, and auto-placement cannot go backwards: it put
      the topbar in row 1 column 2, skipped row 1 column 1, and dropped
@@ -149,6 +149,7 @@ tr:last-child td {
 }
 
 .sidebar {
+  position: relative;
   grid-column: 1;
   /* Beside BOTH rows, so the brand column runs the full height instead
      of starting level with the content. */
@@ -158,20 +159,62 @@ tr:last-child td {
   padding: 24px 16px;
 }
 
-.sidebar .brand {
-  font-size: 24px;
-  font-weight: 700;
-  padding: 0 10px 4px;
+.brand-row {
+  display: flex;
+  align-items: center;
+  /* Keeps the rail's top spacing when the wordmark is gone, so the
+     first icon does not sit against the top edge. */
+  min-height: 38px;
+  padding: 2px 6px 26px;
+  /* Never let the wordmark force the rail wider than 72px while it is
+     fading out — it is clipped by the sidebar, not respected by it. */
+  overflow: hidden;
 }
 
-.sidebar .who {
+.brand-text {
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.brand-name {
+  font-size: 19px;
+  font-weight: 700;
+  line-height: 1.15;
+}
+
+.brand-who {
   font-size: 12px;
   opacity: 0.75;
-  padding: 0 10px 24px;
+}
+
+/* The chevron rides the boundary, half in the sidebar and half out, so
+   it reads as belonging to the menu rather than to the page. */
+.nav-edge {
+  position: absolute;
+  top: 24px;
+  right: -13px;
+  z-index: 45;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--surface);
+  border-radius: 50%;
+  background: var(--brand);
+  color: #fff;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.18);
+}
+
+.nav-edge:hover {
+  background: #62092f;
 }
 
 .nav-item {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 12px;
   width: 100%;
   text-align: left;
   padding: 11px 12px;
@@ -181,6 +224,16 @@ tr:last-child td {
   background: transparent;
   color: rgba(255, 255, 255, 0.85);
   font-weight: 500;
+}
+
+.nav-icon {
+  flex: 0 0 auto;
+}
+
+.nav-label {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
 }
 
 .nav-item:hover {
@@ -468,10 +521,14 @@ tr:last-child td {
 
 /* The toggle and title bar. On a desktop it is a slim strip above the
    content; it only becomes a real header at the drawer breakpoint. */
+/* Gone on a desktop: the chevron on the sidebar's edge is the control,
+   and the title it carried is already the page's own h1 a few pixels
+   below it. It comes back at the drawer breakpoint, where the sidebar
+   is off-canvas and its edge goes with it. */
 .topbar {
   grid-column: 2;
   grid-row: 1;
-  display: flex;
+  display: none;
   align-items: center;
   gap: 12px;
   padding: 12px 32px 0;
@@ -503,14 +560,43 @@ tr:last-child td {
 /* Hiding the column, not the element: `display: none` would drop the
    sidebar out of the grid and leave the content in column 2 of a
    one-column track. Collapsing the track to 0 keeps the grid honest. */
+/* Collapsed is a 72px icon rail, not a hidden column (client,
+   2026-09-14, with a reference design). The icons stay reachable, so
+   collapsing costs a label rather than the whole menu — which is also
+   why the sidebar keeps its accessible tree here and only loses it
+   below the drawer breakpoint, where it really does leave the screen. */
 .shell.nav-closed {
-  grid-template-columns: 0 1fr;
+  grid-template-columns: 72px 1fr;
 }
 
 .shell.nav-closed .sidebar {
-  overflow: hidden;
+  padding-left: 10px;
+  padding-right: 10px;
+}
+
+.shell.nav-closed .nav-item,
+.shell.nav-closed .brand-row {
+  justify-content: center;
+  gap: 0;
+}
+
+.shell.nav-closed .nav-item {
   padding-left: 0;
   padding-right: 0;
+}
+
+.shell.nav-closed .brand-row {
+  padding-left: 0;
+  padding-right: 0;
+}
+
+/* Width, not display:none — a label that is still in the box can be
+   read by a screen reader and found by the browser's find-in-page,
+   and it means no reflow when it comes back. */
+.shell.nav-closed .nav-label,
+.shell.nav-closed .brand-text {
+  width: 0;
+  opacity: 0;
 }
 
 .nav-signout {
@@ -557,8 +643,15 @@ tr:last-child td {
     grid-row: 2;
   }
 
+  /* The sidebar slides off-screen here, taking its edge — and the
+     chevron on it — with it. The burger in the bar is what opens it. */
+  .nav-edge {
+    display: none;
+  }
+
   .topbar {
     grid-row: 1;
+    display: flex;
     position: sticky;
     top: 0;
     z-index: 30;
