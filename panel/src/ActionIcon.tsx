@@ -23,9 +23,27 @@ export type ActionIconName =
   | 'download'
   | 'refresh'
   | 'eye'
-  | 'eyeOff';
+  | 'eyeOff'
+  | 'ai';
 
 const PATHS: Record<ActionIconName, JSX.Element> = {
+  // Two sparkles — the settled convention for "a model made this".
+  //
+  // Deliberately NOT a speaker or a picture frame: those say play and
+  // image, which is what the row already shows, and say nothing about
+  // where the file comes from. The medium is never in doubt here — the
+  // line reads «аудио: «…»» or «картинка: «…»» a few pixels to the
+  // left — so the glyph is free to carry the part that is in doubt.
+  ai: (
+    <>
+      {/* Straight edges, not curves: under a 1.8 stroke at 16px the
+          curved version filled its own concave notches in and read as a
+          blob. Sharp points survive the size. */}
+      <path d="M10.5 3.5 12 8.5l5 1.5-5 1.5-1.5 5-1.5-5-5-1.5 5-1.5z" />
+      <path d="M18 14.5v4" />
+      <path d="M20 16.5h-4" />
+    </>
+  ),
   trash: (
     <>
       <path d="M3 6h18" />

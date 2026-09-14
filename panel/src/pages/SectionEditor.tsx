@@ -582,16 +582,16 @@ function PartMedia({
 
           {canGenerate && (
             <button
-              className="btn btn-ghost btn-sm"
+              className="btn btn-ghost btn-sm btn-icon"
               disabled={busy}
-              title={`Сгенерировать по тексту «${source}»`}
+              // The label the glyph replaces, plus the text that will
+              // actually be rendered — the whole promise of FR-15.18 is
+              // that those two agree, so the tooltip says both.
+              title={`${kind === 'audio' ? 'Озвучить' : 'Нарисовать'} по тексту «${source}»`}
+              aria-label={kind === 'audio' ? 'Озвучить' : 'Нарисовать'}
               onClick={() => void generate()}
             >
-              {busy
-                ? '…'
-                : kind === 'audio'
-                  ? 'Озвучить'
-                  : 'Нарисовать'}
+              {busy ? '…' : <ActionIcon name="ai" />}
             </button>
           )}
         </>
