@@ -4,6 +4,7 @@ api/.env
 
 # Machine-local dev overrides (e.g. API_ORIGIN when 8080 is taken)
 *.env.local
+.env*.local
 panel/.env.local
 
 # Dependencies

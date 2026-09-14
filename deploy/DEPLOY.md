@@ -1,16 +1,47 @@
 # Deploying Dana to a server
 
-A plain Ubuntu VPS: Apache + PHP 8.2 + MariaDB, no Docker, no separate
-worker process. This resolves **Q-36** (TLS) via Let's Encrypt.
+A plain Ubuntu VPS: **nginx + PHP 8.2-FPM + MariaDB**, no Docker, no
+separate worker process. This resolves **Q-36** (TLS) via Let's Encrypt.
 
-One origin serves everything, matching what the code already expects
-(`panel/vite.config.ts`'s dev proxy, and the mobile app's
-`--dart-define=API_BASE=.../api/v1`):
+> This guide was Apache until 2026-09-14. The production server has
+> always answered `Server: nginx/1.24.0 (Ubuntu)`, so the configuration
+> actually in use existed only on that machine and nowhere in version
+> control. It is now [`split-subdomain.nginx.conf.example`](split-subdomain.nginx.conf.example).
+> The Apache examples are kept for anyone deploying on Apache; they are
+> not what mydana.app serves.
+
+## Pick a layout first
+
+Everything below branches on this one choice, so make it now.
+
+**A — one origin** (simplest; no CORS anywhere):
 
 ```
-https://YOUR_DOMAIN/           ->  the admin panel (static build)
-https://YOUR_DOMAIN/api/v1/*   ->  the PHP API
+https://mydana.app/           ->  the admin panel (static build)
+https://mydana.app/api/v1/*   ->  the PHP API
 ```
+
+**B — split subdomains** (FR-15.24, what the client asked for on
+2026-09-14):
+
+```
+https://admin.mydana.app/      ->  the admin panel
+https://api.mydana.app/api/v1/ ->  the PHP API
+```
+
+B is not just two vhosts. The panel's requests become cross-origin, so
+**three settings must agree** or the panel fails in the browser with an
+opaque error and *nothing in the API log*:
+
+| Where | Setting |
+|---|---|
+| `api/.env` | `CORS_ALLOWED_ORIGINS=https://admin.mydana.app` |
+| `panel/.env.production` | `VITE_API_BASE=https://api.mydana.app/api/v1` (committed; baked in at **build** time) |
+| the mobile app | `flutter build apk --release --dart-define=API_BASE=https://api.mydana.app/api/v1` |
+
+Already running layout A and moving to B? Skip to
+[Moving a live install to subdomains](#moving-a-live-install-to-subdomains)
+— the order matters and doing it wrong takes the panel down.
 
 Estimated first-deploy time: 30–45 minutes on a fresh VPS.
 
@@ -27,24 +58,22 @@ app up.
 they aren't forgotten — none of them block getting the server running):
 
 - **Rotate the Gemini API key.** An earlier key was committed to
-  `api/.env` and later removed. The product ships with no AI generation
-  (hard invariant — see `CLAUDE.md`), so `GEMINI_API_KEY` stays blank
-  forever; that old key still needs revoking at
-  [aistudio.google.com](https://aistudio.google.com) if you haven't
-  already, since it's a credential that leaked, not just code that
-  changed.
-- **Real Android release keystore.** `app/android` currently signs
-  release builds with the debug keystore (a public, well-known
-  password). This is a mobile-app task, separate from this server
-  deploy — do it before publishing the app, not before running this guide.
+  `api/.env` and later removed. It still needs revoking at
+  [aistudio.google.com](https://aistudio.google.com) — it is a credential
+  that leaked, not just code that changed. Note that FR-15.18 now uses
+  `GEMINI_API_KEY` for rendering a question's own note as audio or a
+  picture, superadmin-only and dormant unless the operator sets it; the
+  shipped product still carries no key.
+- **Real Android release keystore.** `app/android` signs release builds
+  with the debug keystore (a public, well-known password). Fine for
+  sideloading, not for Play Store. Mobile task, separate from this guide.
 - **Every password used during development is a placeholder** —
   superadmin `azim`, admin `adminpass1`, teacher `teacher123`, student
-  `student`, all of it. §6 below creates a fresh superadmin with a
-  password only you know; nothing from development should reach this
-  server.
+  `student`. §6 creates a fresh superadmin with a password only you know;
+  nothing from development should reach this server.
 - **Push notifications are inbox-only** until `FCM_SERVICE_ACCOUNT_PATH`
   is set (§5). Not a blocker — the in-app inbox works regardless
-  (FR-10.3) — just don't expect a phone banner until you wire it up.
+  (FR-10.3).
 
 ---
 
@@ -55,38 +84,33 @@ single centre. Root or sudo access.
 
 ```bash
 sudo apt update && sudo apt upgrade -y
-
-# PHP 8.2 exactly (ondrej/php PPA — Ubuntu 24.04 ships 8.3, which the
-# code accepts, but pinning to 8.2 keeps this identical to XAMPP dev)
-sudo add-apt-repository -y ppa:ondrej/php
-sudo apt update
-sudo apt install -y \
-  apache2 libapache2-mod-php8.2 \
-  php8.2 php8.2-mysql php8.2-mbstring php8.2-xml php8.2-curl \
-  php8.2-zip php8.2-gd php8.2-opcache php8.2-cli \
-  mariadb-server \
-  composer \
-  git unzip \
-  certbot python3-certbot-apache
-
-# Node 20 LTS, for building the admin panel (build-time only — the
-# server never runs Node afterwards, only serves the static output)
-curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-sudo apt install -y nodejs
 ```
 
-Point your domain's DNS `A` record at the server's IP before §8
-(certbot needs it resolvable).
+```bash
+sudo add-apt-repository -y ppa:ondrej/php && sudo apt update && sudo apt install -y nginx php8.2-fpm php8.2-mysql php8.2-mbstring php8.2-xml php8.2-curl php8.2-zip php8.2-gd php8.2-opcache php8.2-cli mariadb-server composer git unzip certbot python3-certbot-nginx
+```
+
+PHP 8.2 exactly (Ubuntu 24.04 ships 8.3, which the code accepts, but
+pinning to 8.2 keeps this identical to XAMPP dev). Note **`php8.2-fpm`**,
+not `libapache2-mod-php` — under nginx, PHP runs as a separate service
+and that is what holds the opcache (§9).
+
+Node 20 LTS, for building the admin panel. Build-time only: the server
+never runs Node afterwards, it only serves the static output.
+
+```bash
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - && sudo apt install -y nodejs
+```
+
+Point your DNS `A` record(s) at the server's IP before §8 — certbot needs
+them resolvable. Layout B needs **two**: `api.` and `admin.`.
 
 ---
 
 ## 2. Clone the repository
 
 ```bash
-sudo mkdir -p /var/www/dana
-sudo chown "$USER":"$USER" /var/www/dana
-git clone https://github.com/azimalptech/dana.git /var/www/dana
-cd /var/www/dana
+sudo mkdir -p /var/www/dana && sudo chown "$USER":"$USER" /var/www/dana && git clone https://github.com/azimalptech/dana.git /var/www/dana
 ```
 
 ---
@@ -94,8 +118,10 @@ cd /var/www/dana
 ## 3. Database
 
 ```bash
-sudo mysql_secure_installation   # set a root password, remove test DB/anon users
+sudo mysql_secure_installation
+```
 
+```bash
 sudo mysql -u root -p <<'SQL'
 CREATE DATABASE dana CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 CREATE USER 'dana_app'@'localhost' IDENTIFIED BY 'CHANGE_ME_STRONG_PASSWORD';
@@ -105,42 +131,36 @@ SQL
 ```
 
 `dana_app` gets exactly the four verbs the app issues at runtime — no
-`DROP`/`ALTER`/`CREATE TABLE`, so a bug or a stolen API key can corrupt
-rows but can't touch schema or drop the database. Migrations need more
-than that once, so run them as root (§6) or temporarily grant `ALL` to
-`dana_app`, run `bin/migrate.php`, then revoke back down to the four
-verbs above — never leave the app's day-to-day credential able to alter
-schema.
+`DROP`/`ALTER`/`CREATE TABLE`, so a bug or a stolen credential can corrupt
+rows but cannot touch schema or drop the database. Migrations need more
+than that once, so run them as root (§6) or temporarily grant `ALL`, run
+`bin/migrate.php`, then revoke back down — never leave the app's
+day-to-day credential able to alter schema.
 
-Never use MySQL `root` as `DB_USERNAME` in `api/.env` — that was the
-XAMPP-dev default and is explicitly listed as a password to change
-before production (§0).
+Never use MySQL `root` as `DB_USERNAME`. That was the XAMPP-dev default
+and is listed in §0 as a thing to change before production.
 
 ---
 
 ## 4. PHP dependencies
 
 ```bash
-cd /var/www/dana/api
-composer install --no-dev --optimize-autoloader
+cd /var/www/dana/api && composer install --no-dev --optimize-autoloader
 ```
 
 `--no-dev` skips PHPUnit — this server never runs the test suite.
 
-You may see *"Warning: The lock file is not up to date"* — this repo's
+You may see *"Warning: The lock file is not up to date"*. It is cosmetic:
 `composer.json` gained two explicit extension requirements
-(`ext-pdo_mysql`, `ext-zip`) after the lock file was last generated with
-composer unavailable in that session. It's cosmetic: no package version
-changed, only the declared platform requirements did. `composer install`
-still installs correctly; run `composer update --lock` once if you want
-the warning gone.
+(`ext-pdo_mysql`, `ext-zip`) after the lock was last generated. No package
+version changed. Run `composer update --lock` once if you want it gone.
 
 ---
 
 ## 5. Configure the API
 
 ```bash
-cp api/.env.example api/.env
+cp /var/www/dana/api/.env.example /var/www/dana/api/.env
 ```
 
 Edit `api/.env`:
@@ -149,22 +169,24 @@ Edit `api/.env`:
 |---|---|
 | `APP_ENV` | `production` |
 | `APP_DEBUG` | `false` — **a stack trace in a JSON error response is a live server, not dev** |
-| `APP_URL` | `https://YOUR_DOMAIN/api` |
+| `APP_URL` | `https://api.mydana.app` (layout B) or `https://mydana.app/api` (layout A) |
 | `DB_HOST` | `127.0.0.1` |
 | `DB_DATABASE` | `dana` |
 | `DB_USERNAME` | `dana_app` |
 | `DB_PASSWORD` | the password from §3 |
+| `CORS_ALLOWED_ORIGINS` | **Layout B only:** `https://admin.mydana.app`. Comma-separated, exact match, scheme included, no trailing slash. **Leave EMPTY for layout A** — the API then sends no CORS headers at all. Never `*`: these replies carry one student's progress and, on the FR-1.10 reveal path, a decrypted credential. |
 | `APP_CRED_KEY` | `php -r "echo base64_encode(random_bytes(32)), PHP_EOL;"` — **generate once, then never rotate.** It decrypts the teacher password-reveal path (FR-1.10); rotating it locks out every existing student's stored credential. |
 | `JWT_SECRET` | same command, a different 32 random bytes |
-| `JWT_ACCESS_TTL` / `JWT_REFRESH_TTL` | leave at `900` / `2592000` — 15 minutes and 30 days. Sessions renew themselves; shortening these does not make anything safer, it just makes the renewal run more often. |
-| `JWT_REFRESH_GRACE` | leave at `60`. It is how long a just-rotated refresh token may be presented again before the server treats it as stolen — the window that covers a retry after a lost response and a second browser tab (FR-15.15). Setting it to `0` restores the old behaviour, in which those two ordinary events signed the user out of every device. |
+| `JWT_ACCESS_TTL` / `JWT_REFRESH_TTL` | leave at `900` / `2592000` — 15 minutes and 30 days. Sessions renew themselves; shortening these does not make anything safer, it just makes renewal run more often. |
+| `JWT_REFRESH_GRACE` | leave at `60`. How long a just-rotated refresh token may be presented again before the server treats it as stolen — the window covering a retry after a lost response and a second browser tab (FR-15.15). `0` restores the old behaviour, where those two ordinary events signed the user out everywhere. |
 | `LOG_PATH` | leave as `../storage/logs` |
-| `STORAGE_PATH` | leave as `../storage` — **outside `api/public`, so `Alias /api` never exposes it** (question audio/images, logs — see the Apache config's comment) |
-| `LLM_PROVIDER` / `*_API_KEY` | **leave every one of these blank.** No AI generation ships in this product (hard invariant, `CLAUDE.md`) — filling one in doesn't turn a feature on, since no route calls it, but a filled-in key is one more secret that can leak for nothing. |
-| `FCM_SERVICE_ACCOUNT_PATH` | optional — see §0's push-notification note. If you set one, put the JSON file *outside* `api/public` too, same as `STORAGE_PATH`. |
+| `STORAGE_PATH` | leave as `../storage` — **outside `api/public`**, so the web root can never serve question audio, images or logs |
+| `MAX_UPLOAD_BYTES` | **Nothing reads this.** It looks like the upload ceiling and is not one — §9's `php.ini` values are. Left in place rather than silently deleted; do not tune it expecting an effect. |
+| `LLM_PROVIDER` / `*_API_KEY` | leave blank unless you are deliberately enabling FR-15.18 media rendering, which is superadmin-only and needs `GEMINI_API_KEY`. No AI writes content (hard invariant, `CLAUDE.md`). |
+| `FCM_SERVICE_ACCOUNT_PATH` | optional — see §0. If set, put the JSON file *outside* `api/public`, same as `STORAGE_PATH`. |
 
 ```bash
-chmod 600 api/.env
+chmod 600 /var/www/dana/api/.env
 ```
 
 ---
@@ -172,74 +194,88 @@ chmod 600 api/.env
 ## 6. Migrate and create the superadmin
 
 ```bash
-cd /var/www/dana/api
-php bin/migrate.php
-
-# Interactive — the prompt hides the password so it never lands in
-# shell history (see the script's own header comment for the
-# non-interactive --password= form, which you should NOT use here).
-php bin/seed_superadmin.php
+cd /var/www/dana/api && php bin/migrate.php
 ```
 
-Do **not** run `bin/seed_demo.php` here — it creates the exact
-placeholder accounts (`azim`, `adminpass1`, `teacher123`, `student`)
-listed in §0 as things that must never reach production.
+Interactive — the prompt hides the password so it never lands in shell
+history. (The script's header documents a non-interactive `--password=`
+form; do **not** use it here.)
+
+```bash
+cd /var/www/dana/api && php bin/seed_superadmin.php
+```
+
+Do **not** run `bin/seed_demo.php`. It creates the exact placeholder
+accounts §0 lists as things that must never reach production.
 
 ---
 
 ## 7. Build the admin panel
 
 ```bash
-cd /var/www/dana/panel
-echo "API_ORIGIN=https://YOUR_DOMAIN" > .env.production.local
-npm ci
-npm run build
+cd /var/www/dana/panel && npm ci && npm run build
 ```
 
-`npm run build` runs `tsc -b && vite build` (see `package.json`) — a
-type error fails the build loudly rather than shipping broken JS.
-Output lands in `panel/dist/`, which is what the Apache vhost below
-serves directly; nothing under `panel/` other than `dist/` is
-web-facing.
+That is the whole step. There is **no `.env.production.local` to write** —
+an older version of this guide told you to put `API_ORIGIN` in one, which
+does nothing for a production build: `API_ORIGIN` is read only by
+`vite.config.ts`'s **dev-server proxy**.
+
+What the build reads is `panel/.env.production`, which is committed and
+already contains `VITE_API_BASE=https://api.mydana.app/api/v1` for layout
+B. **For layout A**, override it so the panel keeps calling its own
+origin:
+
+```bash
+cd /var/www/dana/panel && VITE_API_BASE=/api/v1 npm run build
+```
+
+`npm run build` runs `tsc -b && vite build` — a type error fails the build
+loudly rather than shipping broken JS. Output lands in `panel/dist/`,
+which is what nginx serves; nothing else under `panel/` is web-facing.
 
 ---
 
-## 8. Apache vhost + TLS
+## 8. nginx + TLS
+
+**Layout B — split subdomains:**
 
 ```bash
-sudo cp deploy/apache-dana.conf.example /etc/apache2/sites-available/dana.conf
-sudo sed -i 's/YOUR_DOMAIN/your.actual.domain/g' /etc/apache2/sites-available/dana.conf
-
-sudo a2enmod rewrite
-sudo a2ensite dana
-sudo a2dissite 000-default
-sudo systemctl reload apache2
-
-# Requests storage of a cert for your.actual.domain, then edits the
-# vhost above in place to add the SSL directives + an HTTP->HTTPS
-# redirect — after this the SSLCertificateFile lines that config
-# started with are the exact result, not just a placeholder anymore.
-sudo certbot --apache -d your.actual.domain
+sudo cp /var/www/dana/deploy/split-subdomain.nginx.conf.example /etc/nginx/sites-available/dana.conf
 ```
+
+Edit the two `server_name`s and the certificate paths if your domains
+differ, then:
+
+```bash
+sudo ln -sf /etc/nginx/sites-available/dana.conf /etc/nginx/sites-enabled/ && sudo rm -f /etc/nginx/sites-enabled/default && sudo nginx -t && sudo systemctl reload nginx
+```
+
+```bash
+sudo certbot --nginx -d api.mydana.app -d admin.mydana.app
+```
+
+**Layout A — one origin:** use the same file but keep a single `server`
+block, with `root /var/www/dana/panel/dist` and a `location /api/` that
+sends requests to `/var/www/dana/api/public/index.php`. Certbot then only
+needs `-d mydana.app`.
 
 Certbot installs a renewal timer automatically
-(`systemctl list-timers | grep certbot`) — nothing further to do for
-renewal.
+(`systemctl list-timers | grep certbot`) — nothing further for renewal.
 
-Set correct ownership once, so the app can write logs and accept
-uploads without the whole directory being world-writable:
+Set ownership once, so the app can write logs and accept uploads without
+the directory being world-writable:
 
 ```bash
-sudo chown -R www-data:www-data /var/www/dana/storage
-sudo find /var/www/dana/storage -type d -exec chmod 750 {} \;
-sudo find /var/www/dana/storage -type f -exec chmod 640 {} \;
+sudo chown -R www-data:www-data /var/www/dana/storage && sudo find /var/www/dana/storage -type d -exec chmod 750 {} \; && sudo find /var/www/dana/storage -type f -exec chmod 640 {} \;
 ```
 
 ---
 
-## 9. PHP production tuning
+## 9. PHP-FPM production tuning
 
-`/etc/php/8.2/apache2/php.ini`:
+Under nginx the file is `/etc/php/8.2/**fpm**/php.ini` — *not* the
+`apache2/` or `cli/` copy. Editing the wrong one is a silent no-op.
 
 ```ini
 display_errors = Off
@@ -251,41 +287,57 @@ opcache.enable = 1
 opcache.validate_timestamps = 0
 ```
 
-`opcache.validate_timestamps = 0` caches compiled PHP permanently —
-faster, but it means **a redeploy is invisible until you reload PHP**
-(`deploy/redeploy.sh` does not do this for you):
+`upload_max_filesize` / `post_max_size` are the **real** ceiling on
+question audio and image uploads (`MAX_UPLOAD_BYTES` in `api/.env` is not
+read by anything). nginx's `client_max_body_size` must be at least
+`post_max_size`, or nginx answers 413 before PHP is reached and nothing
+appears in the application log — the shipped config sets `32M` to sit just
+above the `26M` here. Raise all three together or none.
+
+`opcache.validate_timestamps = 0` caches compiled PHP permanently. It is
+faster, and it means **a `git pull` alone changes files on disk while
+every request keeps running the old code**, silently, with nothing in any
+log. `deploy/redeploy.sh` reloads PHP for you as its last step. Deploying
+by hand, you must do it yourself:
 
 ```bash
-sudo systemctl reload apache2
+sudo systemctl reload php8.2-fpm
 ```
-
-`upload_max_filesize`/`post_max_size` here are the real ceiling on
-question audio/image uploads. `MAX_UPLOAD_BYTES` in `api/.env` is
-declared but not currently read by any code path — these two `php.ini`
-values are what actually governs it today.
 
 ---
 
 ## 10. Verify
 
 ```bash
-curl -s https://your.actual.domain/api/v1/health
-# -> {"status":"ok"} or similar — confirms Apache -> PHP -> MariaDB all work
-
-curl -s -o /dev/null -w '%{http_code}\n' https://your.actual.domain/
-# -> 200 — the panel is being served
+curl -s https://api.mydana.app/api/v1/health
 ```
 
-Open `https://your.actual.domain/` in a browser and log in with the
-superadmin credentials from §6.
+`{"ok":true,"env":"production",...}` confirms nginx → php-fpm → MariaDB
+all work. (Layout A: `https://mydana.app/api/v1/health`.)
 
-For the mobile app, rebuild pointing at the real domain instead of a
-LAN IP — this is also what finally retires the LAN-scoped cleartext
-exception in `network_security_config.xml` (§0):
+Layout B only — the CORS handshake the panel depends on:
 
 ```bash
-cd app
-flutter build apk --release --dart-define=API_BASE=https://your.actual.domain/api/v1
+curl -si -H "Origin: https://admin.mydana.app" https://api.mydana.app/api/v1/health | grep -iE "^HTTP|access-control-allow-origin"
+```
+
+You want `200` **and** `access-control-allow-origin: https://admin.mydana.app`.
+A missing header means `CORS_ALLOWED_ORIGINS` is unset or misspelled —
+the failure that shows as an opaque browser error with nothing in the API
+log. Confirm a hostile origin is refused too:
+
+```bash
+curl -si -H "Origin: https://evil.example.com" https://api.mydana.app/api/v1/health | grep -ci "access-control-allow-origin"
+```
+
+That must print `0`.
+
+Then open the panel in a browser and log in with the superadmin from §6.
+
+For the mobile app, build against the real domain:
+
+```bash
+cd app && flutter build apk --release --dart-define=API_BASE=https://api.mydana.app/api/v1
 ```
 
 ---
@@ -293,50 +345,102 @@ flutter build apk --release --dart-define=API_BASE=https://your.actual.domain/ap
 ## Redeploying after a change
 
 ```bash
-cd /var/www/dana
-./deploy/redeploy.sh
+cd /var/www/dana && ./deploy/redeploy.sh
 ```
 
-The script reloads PHP for you at the end — **do not skip that step if you
-deploy by hand.** With `opcache.validate_timestamps = 0` (§9) PHP compiles
-each file once and never re-reads it, so a `git pull` alone changes the
-files on disk while every request keeps running the OLD code, silently and
-with nothing in any log. That is exactly how an importer fix once landed
-on disk, got re-run, and appeared not to work at all.
-
 The script: `git pull` → `composer install` → `npm ci` → `npm run build`
-→ `php bin/migrate.php` → reload php-fpm / nginx / apache (whichever is
-installed). All are safe to re-run — migrations track what's applied in a
-`migrations` table (`api/bin/migrate.php`), and nothing in the script
-touches `api/.env` or `storage/`.
+→ `php bin/migrate.php` → reload php-fpm and nginx. All are safe to
+re-run — migrations track what is applied in a `migrations` table, and
+nothing in the script touches `api/.env` or `storage/`.
+
+**It reloads PHP for you.** Do not skip that if you ever deploy by hand;
+see §9 for why a `git pull` alone appears to do nothing.
 
 ### It only redoes what changed
 
 `npm ci` and `composer install` are nearly all of a deploy's wall time and
-on a normal day have nothing to do — a lock file changes maybe once a
-month. So each step runs only when a file it depends on actually moved
-between the last successful deploy and this one:
+on a normal day have nothing to do. Each step runs only when a file it
+depends on actually moved since the last successful deploy:
 
 | Step | Runs when |
 | --- | --- |
 | `composer install` | `api/composer.json` or `api/composer.lock` changed, or `api/vendor/` is missing |
 | `npm ci` | `panel/package.json` or `panel/package-lock.json` changed, or `panel/node_modules/` is missing |
 | `npm run build` | anything under `panel/` changed, or `panel/dist/` is missing |
-| migrations, reload | always — both are seconds, and skipping either is how a deploy silently does nothing |
+| migrations, reload | always — both take seconds, and skipping either is how a deploy silently does nothing |
 
-An API-only change is therefore `git pull` → migrate → reload: a couple of
-seconds. Force the long version with `./deploy/redeploy.sh --full`.
+An API-only change is `git pull` → migrate → reload: a couple of seconds.
+Force the long version with `./deploy/redeploy.sh --full`.
 
 The comparison is against the last commit that deployed **successfully**,
-recorded in `.deploy-state` (gitignored) and written only after the reload.
-A run that dies partway leaves it pointing at the old commit, so the retry
-redoes the step that failed instead of deciding there is nothing to do.
+recorded in `.deploy-state` (gitignored) and written only after the
+reload. A run that dies partway leaves it pointing at the old commit, so
+the retry redoes the step that failed instead of deciding there is nothing
+to do.
 
 On failure the script names the step and says plainly that nothing was
-reloaded. On success it prints the commit now live and the built panel
-bundle's filename — if the browser's view-source names a different
-`index-*.js`, the build did land and the browser is holding a cached page
+reloaded. On success it prints the commit now live and the built bundle's
+filename — if the browser's view-source names a different `index-*.js`,
+the build did land and the browser is holding a cached page
 (Ctrl+Shift+R).
+
+---
+
+## Moving a live install to subdomains
+
+Going from layout A to layout B on a server that is already serving
+students. **Order matters**: `panel/.env.production` bakes
+`https://api.mydana.app/api/v1` into the bundle, so rebuilding before the
+subdomain exists points the panel at a host with no DNS and the admin
+panel goes dark until you finish.
+
+1. **DNS** — `A` records for `api.` and `admin.` at the server's IP.
+   Do not continue until both resolve:
+
+   ```bash
+   dig +short api.mydana.app admin.mydana.app
+   ```
+
+2. **Pull the config only** — no rebuild yet:
+
+   ```bash
+   cd /var/www/dana && git pull --ff-only origin main
+   ```
+
+3. **Certificates:**
+
+   ```bash
+   sudo certbot --nginx -d api.mydana.app -d admin.mydana.app
+   ```
+
+4. **CORS** — `redeploy.sh` never touches `.env`, so this is by hand,
+   once:
+
+   ```bash
+   cd /var/www/dana && sed -i 's|^CORS_ALLOWED_ORIGINS=.*|CORS_ALLOWED_ORIGINS=https://admin.mydana.app|' api/.env
+   ```
+
+5. **vhosts** — §8's layout B block.
+
+6. **Only now, deploy:**
+
+   ```bash
+   cd /var/www/dana && ./deploy/redeploy.sh
+   ```
+
+7. **Verify** with §10's CORS checks.
+
+The old `https://mydana.app/` will still serve the panel files, but they
+now call `api.mydana.app`, which allowlists only `admin.mydana.app` — so
+that URL breaks. Either redirect it to the new one, or allow both:
+
+```bash
+cd /var/www/dana && sed -i 's|^CORS_ALLOWED_ORIGINS=.*|CORS_ALLOWED_ORIGINS=https://admin.mydana.app,https://mydana.app|' api/.env && sudo systemctl reload php8.2-fpm
+```
+
+Students on an older APK keep talking to whatever host that build was
+compiled with, so leave the old API path answering until they have
+updated.
 
 ---
 
@@ -346,39 +450,37 @@ Two things actually need backing up — everything else regenerates from
 the git repo.
 
 ```bash
-# Database — the real content and every student's progress
 mysqldump -u root -p dana | gzip > dana-db-$(date +%F).sql.gz
+```
 
-# Uploaded question media (audio/images) — not in git, not in the DB
+```bash
 tar czf dana-storage-$(date +%F).tar.gz -C /var/www/dana storage
 ```
 
-**Never back up `api/.env` alongside the database dump into the same
-place a stolen SQL dump could reach.** `APP_CRED_KEY` is what makes a
-leaked database dump useless on its own (`CLAUDE.md`'s hard invariant
-on credential handling) — keeping the key next to the dump defeats
-that separation. Store `.env` (or just `APP_CRED_KEY`/`JWT_SECRET`) in
-a password manager or a separate secrets store instead.
+**Never back up `api/.env` into the same place a stolen SQL dump could
+reach.** `APP_CRED_KEY` is what makes a leaked database dump useless on
+its own (`CLAUDE.md`'s hard invariant on credential handling); keeping
+the key beside the dump defeats that separation. Store `.env` — or just
+`APP_CRED_KEY` and `JWT_SECRET` — in a password manager or a separate
+secrets store.
 
-Course closure already purges a classroom's student progress
-server-side on completion (FR-1.14) — **export any report you need
-before closing a course**, since that action is not reversible from a
-backup taken after the fact.
+Course closure purges a classroom's student progress server-side on
+completion (FR-1.14) — **export any report you need before closing a
+course**, since that is not reversible from a backup taken afterwards.
 
 ---
 
 ## What this deploy deliberately does not include
 
-- **No Docker.** Superseded by this guide — see the repo's git log if
-  you want the containerised version for reference.
+- **No Docker.** Superseded by this guide — see the git log for the
+  containerised version.
 - **No `bin/worker.php` as a running service.** It exists only for the
-  removed AI content-generation feature (`api/src/Content/**`,
-  `GenerationQueue`) — dead code, not registered as a route, nothing
-  enqueues into it. Don't add a systemd unit for it.
-- **No cron jobs.** Nothing in the codebase currently needs a scheduled
-  task — notifications send synchronously, and there's no token-cleanup
-  job to run periodically.
-- **No CORS configuration.** The single-origin layout in §8 keeps the
-  panel's browser requests same-origin, so the API needs none — it
-  currently defines none, and a split-domain layout would require
-  writing that middleware first.
+  removed AI content-generation feature — dead code, no route, nothing
+  enqueues into it. Do not add a systemd unit for it.
+- **No cron jobs.** Nothing currently needs a scheduled task —
+  notifications send synchronously, and there is no token-cleanup job.
+- **No CORS on layout A.** Same-origin requests need none, and with
+  `CORS_ALLOWED_ORIGINS` empty the API sends no CORS headers at all.
+  Layout B is the case that needs it, and the middleware for it now
+  exists (FR-15.24) — which it did not when this guide first said a split
+  layout was out of scope.
