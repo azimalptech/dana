@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -5,7 +6,9 @@ import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'core/api.dart';
+import 'core/audio.dart';
 import 'core/l10n.dart';
+import 'core/sfx.dart';
 import 'core/theme.dart';
 import 'screens/auth_screens.dart';
 import 'screens/shell.dart';
@@ -22,6 +25,12 @@ void main() {
     DeviceOrientation.portraitUp,
     DeviceOrientation.portraitDown,
   ]);
+
+  // FR-15.20: copy the five interface clips out of the bundle and
+  // prepare a decoder for each now, so the first correct answer of a
+  // session sounds as promptly as the tenth. Not awaited — the app
+  // must not wait on audio to show its first frame.
+  unawaited(Sfx.instance.warmUp());
 
   runApp(const DanaApp());
 }
@@ -176,6 +185,20 @@ class _DanaAppState extends State<DanaApp> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
+  }
+
+  /// Backgrounding the app is leaving the page too (FR-15.20): a
+  /// four-second result clip playing on from the launcher, or over
+  /// whatever the student opened next, is the same complaint as one
+  /// following them to the next question.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) {
+      Sfx.instance.stop();
+      // A listening clip is no different: leaving the app with a
+      // dialogue still playing is the same complaint.
+      AudioBus.instance.stop();
+    }
   }
 
   /// FR-13.25: changing the phone's system language re-applies to the

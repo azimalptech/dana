@@ -86,6 +86,11 @@ class _ExerciseScreenState extends State<ExerciseScreen> with StudyTimeAware {
   dynamic _answer;
   bool? _verdict;
 
+  /// The verdict clip this screen started (FR-15.20). Held so the
+  /// screen silences its own sound and never one that a later screen
+  /// owns — see Sfx.stopOwn.
+  int _sfx = 0;
+
   /// The `answer_description_en` from the last /check (FR-14, §6): the
   /// verdict sheet's explanation line ("You heard seven."). Served
   /// verbatim in English in every UI language; null when the question
@@ -106,7 +111,12 @@ class _ExerciseScreenState extends State<ExerciseScreen> with StudyTimeAware {
   void dispose() {
     // Stop any clip still sounding so audio never bleeds into the next
     // screen. super.dispose() chains to StudyTimeAware.leave().
+    //
+    // The RESULT clip is deliberately not started here — it belongs to
+    // ExerciseEndScreen. Playing it in _finish() and then replacing this
+    // route would have disposed us a frame later and cut it off at once.
     AudioBus.instance.stop();
+    Sfx.instance.stopOwn(_sfx);
     super.dispose();
   }
 
@@ -233,7 +243,7 @@ class _ExerciseScreenState extends State<ExerciseScreen> with StudyTimeAware {
       // sounds once per ANSWER — the sheet rebuilds on every frame of
       // its entrance animation. Not awaited: the verdict must appear
       // at the same moment whether or not the clip decodes.
-      correct ? Sfx.instance.correct() : Sfx.instance.incorrect();
+      _sfx = correct ? Sfx.instance.correct() : Sfx.instance.incorrect();
 
       setState(() {
         _checking = false;
@@ -274,8 +284,10 @@ class _ExerciseScreenState extends State<ExerciseScreen> with StudyTimeAware {
     final requeue = _verdict == false && _sectionType != 'quiz';
     final atLast = _index + 1 >= _questions.length;
 
-    // A clip from this question must not keep sounding over the next.
+    // Nothing from this question keeps sounding over the next — neither
+    // its media nor the verdict chime (FR-15.20).
     AudioBus.instance.stop();
+    Sfx.instance.stopOwn(_sfx);
 
     setState(() {
       if (requeue) _questions.add(_reshuffledCopy(_question));
@@ -342,12 +354,6 @@ class _ExerciseScreenState extends State<ExerciseScreen> with StudyTimeAware {
 
       final percent = (result['percent'] as num?)?.round() ?? 0;
 
-      // The tier clip, chosen by the same thresholds the results
-      // screen uses for its artwork. Started here rather than in that
-      // screen because it is a StatelessWidget with no build-once
-      // hook — from initState it would be easy, from build() it would
-      // replay on every rebuild.
-      Sfx.instance.completed(percent);
       await Navigator.of(context).pushReplacement(
         MaterialPageRoute(
           builder: (_) => ExerciseEndScreen(

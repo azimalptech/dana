@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../core/icons.dart';
 import '../core/l10n.dart';
+import '../core/sfx.dart';
 import '../core/theme.dart';
 import '../main.dart';
 
@@ -16,14 +17,44 @@ import '../main.dart';
 /// returned and computes nothing (NFR-5). By the time it appears the
 /// attempt is already written, so both exits just pop; nothing here can
 /// be discarded any more (unlike mid-exercise, FR-13.5).
-class ExerciseEndScreen extends StatelessWidget {
+class ExerciseEndScreen extends StatefulWidget {
   const ExerciseEndScreen({super.key, required this.percent, this.isQuiz = false});
 
   final int percent;
   final bool isQuiz;
 
   @override
+  State<ExerciseEndScreen> createState() => _ExerciseEndScreenState();
+}
+
+/// Stateful only to own the result sound (FR-15.20). The clip starts
+/// when this screen appears and stops when it goes — so leaving it,
+/// by either exit, cuts the sound instead of letting three or four
+/// seconds of it follow the student onto the next screen.
+///
+/// initState, not build: build runs again on every rebuild and would
+/// restart the clip each time.
+class _ExerciseEndScreenState extends State<ExerciseEndScreen> {
+  /// The clip this screen started, so leaving cuts its own sound and
+  /// not one a later screen owns (Sfx.stopOwn).
+  int _sfx = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _sfx = Sfx.instance.completed(widget.percent);
+  }
+
+  @override
+  void dispose() {
+    Sfx.instance.stopOwn(_sfx);
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final percent = widget.percent;
+    final isQuiz = widget.isQuiz;
     final l = AppState.instance.l;
     final tier = percent >= 80
         ? _Tier.good
