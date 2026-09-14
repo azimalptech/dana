@@ -137,10 +137,22 @@ tr:last-child td {
 .shell {
   display: grid;
   grid-template-columns: 232px 1fr;
+  /* Rows MUST be explicit, and every child placed. The topbar carries
+     `grid-column: 2`, and auto-placement cannot go backwards: it put
+     the topbar in row 1 column 2, skipped row 1 column 1, and dropped
+     the sidebar to row 2 — a blank band across the top of every desktop
+     page with the menu pushed below it. That shipped once, because the
+     responsive pass was checked for sideways overflow and not for where
+     the grid actually put things. */
+  grid-template-rows: auto 1fr;
   min-height: 100vh;
 }
 
 .sidebar {
+  grid-column: 1;
+  /* Beside BOTH rows, so the brand column runs the full height instead
+     of starting level with the content. */
+  grid-row: 1 / -1;
   background: var(--brand);
   color: #fff;
   padding: 24px 16px;
@@ -182,6 +194,8 @@ tr:last-child td {
 }
 
 .content {
+  grid-column: 2;
+  grid-row: 2;
   padding: 28px 32px;
   max-width: 1100px;
 }
@@ -456,6 +470,7 @@ tr:last-child td {
    content; it only becomes a real header at the drawer breakpoint. */
 .topbar {
   grid-column: 2;
+  grid-row: 1;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -530,8 +545,20 @@ tr:last-child td {
     grid-template-columns: 1fr;
   }
 
+  /* One column here, so the desktop placements must be undone or the
+     content sits in a column that no longer exists. */
+  .sidebar,
+  .content,
   .topbar {
     grid-column: 1;
+  }
+
+  .content {
+    grid-row: 2;
+  }
+
+  .topbar {
+    grid-row: 1;
     position: sticky;
     top: 0;
     z-index: 30;
