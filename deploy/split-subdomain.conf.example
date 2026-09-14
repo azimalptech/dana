@@ -3,6 +3,10 @@
 #   https://admin.mydana.app/      -> the built panel (static files)
 #   https://api.mydana.app/api/v1/ -> the PHP API
 #
+# FOR APACHE. The production server at mydana.app runs nginx, so the file
+# you almost certainly want is split-subdomain.nginx.conf.example beside
+# this one. This is kept for an Apache deployment.
+#
 # Use this INSTEAD of apache-dana.conf.example, not alongside it. The
 # single-origin layout in that file still works and needs no CORS; this
 # one is for the split the client asked for on 2026-09-14.

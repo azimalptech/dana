@@ -1,0 +1,121 @@
+# Dana — panel and API on separate subdomains, for nginx (FR-15.24).
+#
+#   https://admin.mydana.app/      -> the built panel (static files)
+#   https://api.mydana.app/api/v1/ -> the PHP API
+#
+# THIS is the file to use on the production server: it runs
+# nginx/1.24.0 (Ubuntu). The Apache examples beside this one are kept for
+# anyone deploying on Apache; they are not what mydana.app serves.
+#
+# Copy to /etc/nginx/sites-available/dana.conf, then:
+#   sudo ln -sf /etc/nginx/sites-available/dana.conf /etc/nginx/sites-enabled/
+#   sudo nginx -t && sudo systemctl reload nginx
+#
+# ORDER MATTERS. Do all of this BEFORE running deploy/redeploy.sh, or the
+# panel will be rebuilt pointing at an api. host that does not resolve yet
+# and the admin panel goes dark in between:
+#
+#   1. DNS      A records for api.mydana.app and admin.mydana.app
+#               -> this server's public IP
+#   2. TLS      sudo certbot --nginx -d api.mydana.app -d admin.mydana.app
+#   3. api/.env CORS_ALLOWED_ORIGINS=https://admin.mydana.app
+#               (redeploy.sh never touches .env — this is by hand, once)
+#   4. this file, nginx -t, reload
+#   5. only now  ./deploy/redeploy.sh
+#
+# The API vhost deliberately sets NO CORS headers. They come from the
+# application, which knows the allowlist; adding them here as well sends
+# each header twice and browsers reject a doubled
+# Access-Control-Allow-Origin outright.
+
+# ── Panel ─────────────────────────────────────────────────────────────
+server {
+    listen 80;
+    listen [::]:80;
+    server_name admin.mydana.app;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name admin.mydana.app;
+
+    ssl_certificate     /etc/letsencrypt/live/admin.mydana.app/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/admin.mydana.app/privkey.pem;
+
+    root /var/www/dana/panel/dist;
+    index index.html;
+
+    # The panel has no client-side router, so no SPA catch-all is needed;
+    # a missing file really is a 404.
+    location / {
+        try_files $uri $uri/ =404;
+    }
+
+    # Vite fingerprints these (index-<hash>.js), so they can be cached
+    # hard — a new build produces a new name.
+    location /assets/ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+
+    # index.html must NOT be cached, or a browser keeps loading the old
+    # page and asking for a bundle the deploy has already replaced.
+    location = /index.html {
+        add_header Cache-Control "no-store";
+    }
+
+    access_log /var/log/nginx/dana-admin-access.log;
+    error_log  /var/log/nginx/dana-admin-error.log;
+}
+
+# ── API ───────────────────────────────────────────────────────────────
+server {
+    listen 80;
+    listen [::]:80;
+    server_name api.mydana.app;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name api.mydana.app;
+
+    ssl_certificate     /etc/letsencrypt/live/api.mydana.app/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/api.mydana.app/privkey.pem;
+
+    # Slim registers its own routes under /api/v1, so the prefix stays in
+    # the URI and is NOT stripped here. api/public is the only directory
+    # exposed; storage/ is a sibling of api/ and stays unreachable.
+    root /var/www/dana/api/public;
+    index index.php;
+
+    # MAX_UPLOAD_BYTES in api/.env is 500 MB (course media and xlsx).
+    # nginx defaults to 1 MB and rejects anything larger with a 413
+    # before PHP ever sees it, so these two must agree.
+    client_max_body_size 500M;
+
+    # Front controller: everything that is not a real file goes to Slim.
+    location / {
+        try_files $uri $uri/ /index.php$is_args$args;
+    }
+
+    location ~ \.php$ {
+        include snippets/fastcgi-php.conf;
+        fastcgi_pass unix:/run/php/php8.2-fpm.sock;
+        # Long imports and media generation outlive the 60s default.
+        fastcgi_read_timeout 300;
+    }
+
+    # Nothing under api/public should ever be a dotfile request.
+    location ~ /\. {
+        deny all;
+    }
+
+    access_log /var/log/nginx/dana-api-access.log;
+    error_log  /var/log/nginx/dana-api-error.log;
+}
