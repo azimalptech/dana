@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../core/api.dart';
+import '../core/sfx.dart';
 import '../core/audio.dart';
 import '../core/icons.dart';
 import '../core/l10n.dart';
@@ -226,9 +227,17 @@ class _ExerciseScreenState extends State<ExerciseScreen> with StudyTimeAware {
       );
       if (!mounted) return;
 
+      final correct = result['correct'] == true;
+
+      // FR-15.20. Fired here rather than in the verdict widget so it
+      // sounds once per ANSWER — the sheet rebuilds on every frame of
+      // its entrance animation. Not awaited: the verdict must appear
+      // at the same moment whether or not the clip decodes.
+      correct ? Sfx.instance.correct() : Sfx.instance.incorrect();
+
       setState(() {
         _checking = false;
-        _verdict = result['correct'] == true;
+        _verdict = correct;
         // §6: the verdict sheet's explanation line, when the question
         // carries one. Trimmed so an empty string reads as absent.
         final description = (result['answer_description_en'] as String?)?.trim();
@@ -332,6 +341,13 @@ class _ExerciseScreenState extends State<ExerciseScreen> with StudyTimeAware {
       if (!mounted) return;
 
       final percent = (result['percent'] as num?)?.round() ?? 0;
+
+      // The tier clip, chosen by the same thresholds the results
+      // screen uses for its artwork. Started here rather than in that
+      // screen because it is a StatelessWidget with no build-once
+      // hook — from initState it would be easy, from build() it would
+      // replay on every rebuild.
+      Sfx.instance.completed(percent);
       await Navigator.of(context).pushReplacement(
         MaterialPageRoute(
           builder: (_) => ExerciseEndScreen(

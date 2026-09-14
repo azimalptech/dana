@@ -45,3 +45,6 @@ flutter:
     # Memoji end-screen art cropped from the client's design file
     # (docs/design/redesign-2026-08). Exercise and exam share them.
     - assets/illustrations/
+    # Interface sounds: right, wrong, and the three result tiers
+    # (FR-15.20). Client-supplied.
+    - assets/sounds/
