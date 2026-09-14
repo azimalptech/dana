@@ -146,10 +146,11 @@ final class MediaController extends Controller
 
         $node = $this->partNode($payload, $part);
         $note = (string) ($kind === 'audio' ? ($node['audio_note'] ?? '') : ($node['image_note'] ?? ''));
+        $source = $this->sourceText($payload, $note);
 
         $made = $kind === 'audio'
-            ? $this->gemini->speech($note)
-            : $this->gemini->image($note);
+            ? $this->gemini->speech($source)
+            : $this->gemini->image($source);
 
         $name = $this->write($question, $part, $kind, $made['bytes'], $made['ext']);
 
@@ -157,9 +158,76 @@ final class MediaController extends Controller
             // What was actually asked for, so the panel can show it:
             // "FLAG_TURKEY" reaches Gemini as "the national flag of
             // Turkey", and a two-line script as a two-voice scene.
-            'note'   => $kind === 'audio' ? self::spokenSummary($note) : Note::imageSubject($note),
+            // The SOURCE, not the raw note: when the note names a file
+            // the two differ, and the panel must echo what was actually
+            // spoken or drawn rather than what was written down.
+            'note'   => $kind === 'audio' ? self::spokenSummary($source) : Note::imageSubject($source),
             'source' => 'gemini',
         ]);
+    }
+
+    /**
+     * What Gemini is actually given for this part.
+     *
+     * FR-15.18 renders the note itself, and that is right when the note
+     * IS the words — `seven`, `FLAG_TURKEY`, a two-line script. The
+     * workbook's listening content does something else: it puts the
+     * source recording's FILE NAME in the note
+     * (`A2_U09-10_RC910_LIST_001.mp3`) because that is what the note
+     * stands for in the printed book. Rendering that speaks the filename
+     * aloud, letter by letter.
+     *
+     * So a note that names a file is not the text — the question's own
+     * correct answer is (client, 2026-09-14: «gemini should create an
+     * audio that plays "fruit"»). That keeps the invariant that matters:
+     * nothing is invented here either way, the words still come from the
+     * question the author already wrote, only from its answer rather
+     * than from its note.
+     *
+     * Refused rather than guessed when neither yields anything, because
+     * a silent clip or a picture of nothing would pass FR-14.2 as a
+     * present file and fail only in front of a student.
+     */
+    private function sourceText(array $payload, string $note): string
+    {
+        $note = trim($note);
+
+        if ($note !== '' && !Note::isMediaFilename($note)) {
+            return $note;
+        }
+
+        $answer = self::answerText($payload);
+
+        if ($answer !== '') {
+            return $answer;
+        }
+
+        throw ApiException::validation(
+            'Bellikde diňe faýl ady bar, dogry jogap bolsa boş.',
+            $note === ''
+                ? 'Нечего озвучить или нарисовать: заметка пуста и правильный ответ тоже.'
+                : 'Заметка «' . $note . '» — это имя файла, а правильный ответ пуст. '
+                    . 'Впишите текст в заметку или заполните правильный ответ.',
+        );
+    }
+
+    /**
+     * The text of the option the payload marks correct, or '' when the
+     * payload is not a multiple choice or the option carries no text of
+     * its own (an options-are-pictures question, say).
+     */
+    private static function answerText(array $payload): string
+    {
+        $options = $payload['options'] ?? null;
+        $index   = $payload['answer'] ?? null;
+
+        if (!is_array($options) || !is_int($index)) {
+            return '';
+        }
+
+        $option = $options[$index] ?? null;
+
+        return is_array($option) ? trim((string) ($option['text'] ?? '')) : '';
     }
 
     /**

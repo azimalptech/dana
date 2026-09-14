@@ -42,6 +42,13 @@ final class Note
     private const IDENTIFIER = '/^[A-Z0-9][A-Z0-9_\-]*$/';
 
     /**
+     * Extensions a note carries when it NAMES a recording or a picture
+     * rather than describing one. Deliberately explicit: no English
+     * phrase a teacher would write ends in ".mp3".
+     */
+    private const MEDIA_FILENAME = '/\.(mp3|wav|m4a|ogg|opus|aac|flac|png|jpe?g|webp|gif|svg)$/i';
+
+    /**
      * What to draw.
      *
      * An identifier is decoded; anything else is the author writing
@@ -182,5 +189,20 @@ final class Note
             'У этой части нет текста для озвучки или картинки.',
             400
         );
+    }
+
+    /**
+     * True when the note is the FILE NAME of a recording or a picture
+     * rather than something that can be spoken or drawn.
+     *
+     * The workbook's listening content puts the source file there —
+     * `A2_U09-10_RC910_LIST_001.mp3` — because that is what the note
+     * stands for in the printed book. Spoken, it is the filename read
+     * out. Callers use this to reach for the question's own answer
+     * instead, which is the word the student is meant to hear.
+     */
+    public static function isMediaFilename(string $note): bool
+    {
+        return (bool) preg_match(self::MEDIA_FILENAME, trim($note));
     }
 }

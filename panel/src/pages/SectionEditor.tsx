@@ -130,6 +130,29 @@ const QUIZ_SKILL_LABEL: Record<keyof QuizSkillNumbers, string> = {
   listening: 'Аудирование',
 };
 
+/**
+ * Notes that NAME a recording or a picture rather than describing one.
+ * Must agree with Note::isMediaFilename on the server.
+ */
+const MEDIA_FILENAME = /.(mp3|wav|m4a|ogg|opus|aac|flac|png|jpe?g|webp|gif|svg)$/i;
+
+/**
+ * What Gemini will actually be given for a part — display only; the
+ * server decides for real (MediaController::sourceText).
+ *
+ * A listening note is usually the source file's NAME, which spoken
+ * aloud is the filename. In that case the words come from the
+ * question's own correct answer instead, so the button has to promise
+ * that and not the note beside it.
+ */
+function generationSource(payload: Payload, note: string): string {
+  const trimmed = note.trim();
+  if (trimmed !== '' && !MEDIA_FILENAME.test(trimmed)) return trimmed;
+
+  const answer = (payload.options ?? [])[payload.answer ?? 0];
+  return (answer?.text ?? '').trim();
+}
+
 /** stem / opt0..opt3 → what the superadmin reads. */
 function partLabel(key: string): string {
   if (key === 'stem') return 'Вопрос';
@@ -425,11 +448,14 @@ function PartMedia({
   questionId,
   partKey,
   part,
+  source,
   run,
 }: {
   questionId: number;
   partKey: string;
   part: McPart;
+  /** The words that will actually be spoken or drawn. */
+  source: string;
   run: (a: () => Promise<unknown>) => Promise<void>;
 }) {
   const canGenerate = useContext(CanGenerateMedia);
@@ -491,6 +517,11 @@ function PartMedia({
     >
       <span className="muted" style={{ minWidth: 84 }}>{partLabel(partKey)}</span>
       <strong>{kind === 'audio' ? 'аудио' : 'картинка'}: «{note}»</strong>
+      {canGenerate && source !== '' && source !== note.trim() && (
+        <span className="muted">
+          будет {kind === 'audio' ? 'озвучено' : 'нарисовано'}: «{source}»
+        </span>
+      )}
 
       {part.media_path ? (
         <>
@@ -504,7 +535,7 @@ function PartMedia({
             <button
               className="btn btn-ghost btn-sm"
               disabled={busy}
-              title={`Сгенерировать заново по тексту «${note}». Текущий файл будет заменён.`}
+              title={`Сгенерировать заново по тексту «${source}». Текущий файл будет заменён.`}
               onClick={() => void generate()}
             >
               {busy ? '…' : 'Перегенерировать'}
@@ -543,7 +574,7 @@ function PartMedia({
             <button
               className="btn btn-ghost btn-sm"
               disabled={busy}
-              title={`Сгенерировать по тексту «${note}»`}
+              title={`Сгенерировать по тексту «${source}»`}
               onClick={() => void generate()}
             >
               {busy
@@ -1428,7 +1459,14 @@ function QuestionRow({
       </div>
 
       {mediaParts.map(({ key, part }) => (
-        <PartMedia key={key} questionId={question.id} partKey={key} part={part} run={run} />
+        <PartMedia
+          key={key}
+          questionId={question.id}
+          partKey={key}
+          part={part}
+          source={generationSource(payload, part.audio_note ?? part.image_note ?? '')}
+          run={run}
+        />
       ))}
     </div>
   );
