@@ -38,10 +38,15 @@ export interface PanelUser {
 // server, and a single-origin deployment where the same host serves both
 // the panel and the API.
 //
-// FR-15.24 added a third: the panel on its own subdomain. There a
-// relative path resolves against admin.mydana.app, which serves no API,
-// so the origin has to be named. Set VITE_API_BASE at BUILD time — Vite
-// inlines it, so this is baked into the bundle, not read at runtime:
+// FR-15.24 added a third, SUPPORTED BUT NOT IN USE (client, 2026-09-14:
+// «we redirected APIs through api.mydana.app and admin.mydana.app, we
+// need to cancel this part only»). Production serves the panel and the
+// API from one origin, so the fallback below is the live path and no
+// .env.production overrides it.
+//
+// To put the panel on its own subdomain later, set VITE_API_BASE at
+// BUILD time — Vite inlines it, so it is baked into the bundle, not
+// read at runtime:
 //
 //   VITE_API_BASE=https://api.mydana.app/api/v1
 //

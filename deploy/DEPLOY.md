@@ -14,15 +14,19 @@ separate worker process. This resolves **Q-36** (TLS) via Let's Encrypt.
 
 Everything below branches on this one choice, so make it now.
 
-**A — one origin** (simplest; no CORS anywhere):
+**A — one origin** — **this is what production runs.** Simplest; no CORS
+anywhere:
 
 ```
 https://mydana.app/           ->  the admin panel (static build)
 https://mydana.app/api/v1/*   ->  the PHP API
 ```
 
-**B — split subdomains** (FR-15.24, what the client asked for on
-2026-09-14):
+**B — split subdomains** — built (FR-15.24) but **cancelled before it
+went live** (client, 2026-09-14: «we redirected APIs through
+api.mydana.app and admin.mydana.app, we need to cancel this part only»).
+Everything for it is still here and works; nothing is configured to use
+it. Choose it only if you decide to split later:
 
 ```
 https://admin.mydana.app/      ->  the admin panel
@@ -36,7 +40,7 @@ opaque error and *nothing in the API log*:
 | Where | Setting |
 |---|---|
 | `api/.env` | `CORS_ALLOWED_ORIGINS=https://admin.mydana.app` |
-| `panel/.env.production` | `VITE_API_BASE=https://api.mydana.app/api/v1` (committed; baked in at **build** time) |
+| `panel/.env.production` | `VITE_API_BASE=https://api.mydana.app/api/v1` — **this file does not exist**; create it to choose layout B. Baked in at **build** time, so it takes a rebuild, not a restart. |
 | the mobile app | `flutter build apk --release --dart-define=API_BASE=https://api.mydana.app/api/v1` |
 
 Already running layout A and moving to B? Skip to
@@ -221,14 +225,13 @@ an older version of this guide told you to put `API_ORIGIN` in one, which
 does nothing for a production build: `API_ORIGIN` is read only by
 `vite.config.ts`'s **dev-server proxy**.
 
-What the build reads is `panel/.env.production`, which is committed and
-already contains `VITE_API_BASE=https://api.mydana.app/api/v1` for layout
-B. **For layout A**, override it so the panel keeps calling its own
-origin:
-
-```bash
-cd /var/www/dana/panel && VITE_API_BASE=/api/v1 npm run build
-```
+What the build would read for layout B is `panel/.env.production`. It is
+deliberately **not** in the repository, so a default build is
+single-origin and cannot silently point a panel at a host that does not
+exist. **For layout A** — the current one — there is nothing to do: with no
+`.env.production` present, `VITE_API_BASE` is unset and `api.ts` falls
+back to a relative `/api/v1`, which resolves against whatever host serves
+the panel.
 
 `npm run build` runs `tsc -b && vite build` — a type error fails the build
 loudly rather than shipping broken JS. Output lands in `panel/dist/`,
