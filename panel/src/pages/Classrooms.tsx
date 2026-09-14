@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react';
 
+import ActionIcon from '../ActionIcon';
 import { ApiError, api } from '../api';
 import { useAsync } from '../hooks';
 
@@ -225,10 +226,12 @@ function ClassroomRowView({ row, onChanged }: { row: ClassroomRow; onChanged: ()
         )}
 
         <button
-          className="btn btn-ghost btn-sm"
+          className="btn btn-ghost btn-sm btn-icon"
+          title="Скачать CSV"
+          aria-label="Скачать CSV"
           onClick={() => api.download(`/manage/classrooms/${row.id}/export`, `${row.name}.csv`)}
         >
-          Скачать CSV
+          <ActionIcon name="download" />
         </button>
 
         {!row.closed && (
@@ -238,11 +241,13 @@ function ClassroomRowView({ row, onChanged }: { row: ClassroomRow; onChanged: ()
         )}
 
         <button
-          className="btn btn-danger btn-sm"
+          className="btn btn-danger btn-sm btn-icon"
+          title="Удалить класс"
+          aria-label="Удалить класс"
           disabled={busy}
           onClick={() => void removeClassroom()}
         >
-          Удалить класс
+          <ActionIcon name="trash" />
         </button>
       </div>
 
@@ -420,12 +425,15 @@ function StudentsPanel({
                 </td>
                 <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                   <button
-                    className="btn btn-ghost btn-sm"
+                    className="btn btn-ghost btn-sm btn-icon"
                     disabled={busyId === s.id || !s.can_reveal}
-                    title={s.can_reveal ? undefined : 'Пароль нельзя показать — задайте новый.'}
+                    title={
+                      s.can_reveal ? 'Показать пароль' : 'Пароль нельзя показать — задайте новый.'
+                    }
+                    aria-label="Показать пароль"
                     onClick={() => void reveal(s)}
                   >
-                    Показать пароль
+                    <ActionIcon name="eye" />
                   </button>{' '}
                   <button
                     className="btn btn-ghost btn-sm"
@@ -435,11 +443,13 @@ function StudentsPanel({
                     Сбросить пароль
                   </button>{' '}
                   <button
-                    className="btn btn-danger btn-sm"
+                    className="btn btn-danger btn-sm btn-icon"
+                    title="Удалить"
+                    aria-label="Удалить"
                     disabled={busyId === s.id}
                     onClick={() => void removeStudent(s)}
                   >
-                    Удалить
+                    <ActionIcon name="trash" />
                   </button>
                 </td>
               </tr>

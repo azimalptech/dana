@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 
+import ActionIcon from '../ActionIcon';
 import { ApiError, api } from '../api';
 import { useAsync } from '../hooks';
 
@@ -410,12 +411,14 @@ function LevelExportRows({
             {open ? 'Свернуть юниты' : 'Юниты…'}
           </button>
           <button
-            className="btn btn-sm"
+            className="btn btn-sm btn-icon"
+            title="Скачать .xlsx"
+            aria-label="Скачать .xlsx"
             onClick={() =>
               onExport(`scope=level&id=${level.id}`, `dana-content-level-${level.id}-${stamp}.xlsx`)
             }
           >
-            Скачать .xlsx
+            <ActionIcon name="download" />
           </button>
         </td>
       </tr>
@@ -438,12 +441,14 @@ function LevelExportRows({
             <td className="muted">{unit.child_units} подюнитов</td>
             <td style={{ textAlign: 'right' }}>
               <button
-                className="btn btn-ghost btn-sm"
+                className="btn btn-ghost btn-sm btn-icon"
+                title="Скачать .xlsx"
+                aria-label="Скачать .xlsx"
                 onClick={() =>
                   onExport(`scope=unit&id=${unit.id}`, `dana-content-unit-${unit.id}-${stamp}.xlsx`)
                 }
               >
-                Скачать .xlsx
+                <ActionIcon name="download" />
               </button>
             </td>
           </tr>

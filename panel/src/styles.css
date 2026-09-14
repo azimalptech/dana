@@ -95,6 +95,38 @@ label {
   font-size: 13px;
 }
 
+/* An action reduced to its glyph (FR-15.26). Square, so a row of them
+   lines up however many there are, and sized by the same scale as the
+   text buttons beside them rather than by the icon — a 16px glyph in a
+   32px target is the point, not an accident. */
+.btn-icon {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn-icon.btn-sm {
+  width: 30px;
+  height: 30px;
+}
+
+/* Touch targets: 30px is comfortable with a mouse and not with a
+   finger. The row wraps rather than shrinks, so there is room. */
+@media (max-width: 900px) {
+  .btn-icon,
+  .btn-icon.btn-sm {
+    width: 40px;
+    height: 40px;
+  }
+}
+
+.action-icon {
+  display: block;
+}
+
 .card {
   background: var(--card);
   border: 1.5px solid var(--border);

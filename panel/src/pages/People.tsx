@@ -1,5 +1,6 @@
 import { useMemo, useState, type FormEvent } from 'react';
 
+import ActionIcon from '../ActionIcon';
 import { ApiError, api, type PanelUser } from '../api';
 import { useAsync } from '../hooks';
 
@@ -254,8 +255,13 @@ function CenterDetail({
           <button className="btn btn-ghost btn-sm" onClick={() => setEditing(!editing)}>
             {editing ? 'Отмена' : 'Изменить'}
           </button>{' '}
-          <button className="btn btn-danger btn-sm" onClick={() => void removeCenter()}>
-            Удалить центр
+          <button
+            className="btn btn-danger btn-sm btn-icon"
+            title="Удалить центр"
+            aria-label="Удалить центр"
+            onClick={() => void removeCenter()}
+          >
+            <ActionIcon name="trash" />
           </button>
         </span>
       </div>
@@ -676,15 +682,29 @@ function StaffRow({
         {error && <span style={{ color: 'var(--error)', fontSize: 12, marginRight: 8 }}>{error}</span>}
         {person.role === 'teacher' && (
           <>
-            <button className="btn btn-ghost btn-sm" disabled={busy} onClick={() => setEditing(true)}>
-              Изменить
+            <button
+              className="btn btn-ghost btn-sm btn-icon"
+              title="Изменить"
+              aria-label="Изменить"
+              disabled={busy}
+              onClick={() => setEditing(true)}
+            >
+              <ActionIcon name="pencil" />
             </button>{' '}
           </>
         )}
         {canReveal && person.role === 'teacher' && (
           <>
-            <button className="btn btn-ghost btn-sm" disabled={busy} onClick={() => void revealPassword()}>
-              {busy ? '…' : 'Показать пароль'}
+            <button
+              className="btn btn-ghost btn-sm btn-icon"
+              title="Показать пароль"
+              aria-label="Показать пароль"
+              disabled={busy}
+              onClick={() => void revealPassword()}
+            >
+              {/* The busy «…» stays: it is the only sign the reveal is in
+                  flight, and the glyph only replaces the idle label. */}
+              {busy ? '…' : <ActionIcon name="eye" />}
             </button>{' '}
           </>
         )}
@@ -703,7 +723,9 @@ function StaffRow({
           <>
             {' '}
             <button
-              className="btn btn-danger btn-sm"
+              className="btn btn-danger btn-sm btn-icon"
+              title="Удалить"
+              aria-label="Удалить"
               disabled={busy}
               onClick={() => {
                 const who = person.role === 'admin' ? 'администратора' : 'преподавателя';
@@ -712,7 +734,7 @@ function StaffRow({
                 }
               }}
             >
-              Удалить
+              <ActionIcon name="trash" />
             </button>
           </>
         )}

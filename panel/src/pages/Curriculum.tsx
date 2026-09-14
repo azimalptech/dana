@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 
+import ActionIcon from '../ActionIcon';
 import { ApiError, api } from '../api';
 import { useAsync } from '../hooks';
 import ReorderNudge from '../ReorderNudge';
@@ -240,7 +241,9 @@ export default function Curriculum() {
             </button>{' '}
             {level && (
               <button
-                className="btn btn-danger btn-sm"
+                className="btn btn-danger btn-sm btn-icon"
+                title="Удалить уровень"
+                aria-label="Удалить уровень"
                 onClick={() =>
                   void remove(
                     `/manage/levels/${level.id}`,
@@ -252,7 +255,7 @@ export default function Curriculum() {
                   )
                 }
               >
-                Удалить уровень
+                <ActionIcon name="trash" />
               </button>
             )}
           </span>
@@ -529,7 +532,9 @@ function UnitRowView({
       <td>{unit.sections.length}</td>
       <td style={{ whiteSpace: 'nowrap', textAlign: 'right', visibility: drag ? 'hidden' : 'visible' }}>
         <button
-          className="btn btn-ghost btn-sm"
+          className="btn btn-ghost btn-sm btn-icon"
+          title="Изменить"
+          aria-label="Изменить"
           onClick={(e) => {
             e.stopPropagation();
             setName(unit.name ?? '');
@@ -537,10 +542,12 @@ function UnitRowView({
             setEditing(true);
           }}
         >
-          Изменить
+          <ActionIcon name="pencil" />
         </button>{' '}
         <button
-          className="btn btn-danger btn-sm"
+          className="btn btn-danger btn-sm btn-icon"
+          title="Удалить"
+          aria-label="Удалить"
           onClick={(e) => {
             e.stopPropagation();
             void remove(
@@ -549,7 +556,7 @@ function UnitRowView({
             );
           }}
         >
-          Удалить
+          <ActionIcon name="trash" />
         </button>
       </td>
     </tr>
@@ -598,7 +605,9 @@ function SectionCard({
             {editing ? 'Отмена' : 'Изменить'}
           </button>{' '}
           <button
-            className="btn btn-danger btn-sm"
+            className="btn btn-danger btn-sm btn-icon"
+            title="Удалить подюнит"
+            aria-label="Удалить подюнит"
             onClick={() =>
               void remove(
                 `/manage/sections/${section.id}`,
@@ -606,7 +615,7 @@ function SectionCard({
               )
             }
           >
-            Удалить подюнит
+            <ActionIcon name="trash" />
           </button>
         </span>
       </div>

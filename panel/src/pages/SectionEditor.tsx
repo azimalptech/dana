@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 
+import ActionIcon from '../ActionIcon';
 import { ApiError, api } from '../api';
 import { useAsync } from '../hooks';
 
@@ -533,18 +534,21 @@ function PartMedia({
               overwrites in place, so nothing accumulates. */}
           {canGenerate && (
             <button
-              className="btn btn-ghost btn-sm"
+              className="btn btn-ghost btn-sm btn-icon"
               disabled={busy}
-              title={`Сгенерировать заново по тексту «${source}». Текущий файл будет заменён.`}
+              title={`Перегенерировать по тексту «${source}». Текущий файл будет заменён.`}
+              aria-label="Перегенерировать"
               onClick={() => void generate()}
             >
-              {busy ? '…' : 'Перегенерировать'}
+              {busy ? '…' : <ActionIcon name="refresh" />}
             </button>
           )}
 
           <button
-            className="btn btn-danger btn-sm"
+            className="btn btn-danger btn-sm btn-icon"
             disabled={busy}
+            title="Удалить файл"
+            aria-label="Удалить файл"
             onClick={() => {
               if (confirm(`Удалить файл для «${partLabel(partKey)}»? Вопрос снова скроется от учеников.`)) {
                 void run(() =>
@@ -553,7 +557,7 @@ function PartMedia({
               }
             }}
           >
-            Удалить файл
+            <ActionIcon name="trash" />
           </button>
         </>
       ) : (
@@ -566,8 +570,14 @@ function PartMedia({
             disabled={busy}
             style={{ maxWidth: 220 }}
           />
-          <button className="btn btn-sm" disabled={busy} onClick={() => void upload()}>
-            {busy ? 'Загрузка…' : 'Загрузить'}
+          <button
+            className="btn btn-sm btn-icon"
+            disabled={busy}
+            title="Загрузить"
+            aria-label="Загрузить"
+            onClick={() => void upload()}
+          >
+            {busy ? '…' : <ActionIcon name="upload" />}
           </button>
 
           {canGenerate && (
@@ -729,8 +739,13 @@ function SectionCard({
         <button className="btn btn-ghost btn-sm" onClick={() => setRenaming(!renaming)}>
           {renaming ? 'Отмена' : 'Переименовать'}
         </button>
-        <button className="btn btn-danger btn-sm" onClick={() => void removeHandlingAttempts()}>
-          Удалить раздел
+        <button
+          className="btn btn-danger btn-sm btn-icon"
+          title="Удалить раздел"
+          aria-label="Удалить раздел"
+          onClick={() => void removeHandlingAttempts()}
+        >
+          <ActionIcon name="trash" />
         </button>
       </div>
 
@@ -977,18 +992,25 @@ function VocabularyEditor({
                 <td>{item.translation_tk}</td>
                 <td>{item.translation_ru}</td>
                 <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                  <button className="btn btn-ghost btn-sm" onClick={() => setEditing(item.id)}>
-                    Изменить
+                  <button
+                    className="btn btn-ghost btn-sm btn-icon"
+                    title="Изменить"
+                    aria-label="Изменить"
+                    onClick={() => setEditing(item.id)}
+                  >
+                    <ActionIcon name="pencil" />
                   </button>{' '}
                   <button
-                    className="btn btn-danger btn-sm"
+                    className="btn btn-danger btn-sm btn-icon"
+                    title="Удалить"
+                    aria-label="Удалить"
                     onClick={() => {
                       if (confirm(`Удалить «${item.term_en}»?`)) {
                         void run(() => api.del(`/manage/vocabulary/${item.id}`));
                       }
                     }}
                   >
-                    Удалить
+                    <ActionIcon name="trash" />
                   </button>
                 </td>
               </tr>
@@ -1295,7 +1317,9 @@ function SetSection({
           {set.status === 'published' ? 'Снять' : 'Опубликовать'}
         </button>
         <button
-          className="btn btn-danger btn-sm"
+          className="btn btn-danger btn-sm btn-icon"
+          title="Удалить упражнение"
+          aria-label="Удалить упражнение"
           onClick={(e) => {
             e.stopPropagation();
             if (confirm(`Удалить упражнение «${set.title_ru}»?`)) {
@@ -1303,7 +1327,7 @@ function SetSection({
             }
           }}
         >
-          Удалить упражнение
+          <ActionIcon name="trash" />
         </button>
       </div>
 
@@ -1450,11 +1474,21 @@ function QuestionRow({
             </div>
           )}
         </div>
-        <button className="btn btn-ghost btn-sm" onClick={onEdit}>
-          Изменить
+        <button
+          className="btn btn-ghost btn-sm btn-icon"
+          title="Изменить"
+          aria-label="Изменить"
+          onClick={onEdit}
+        >
+          <ActionIcon name="pencil" />
         </button>
-        <button className="btn btn-danger btn-sm" onClick={onDelete}>
-          Удалить
+        <button
+          className="btn btn-danger btn-sm btn-icon"
+          title="Удалить"
+          aria-label="Удалить"
+          onClick={onDelete}
+        >
+          <ActionIcon name="trash" />
         </button>
       </div>
 

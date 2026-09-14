@@ -4,8 +4,25 @@
     {
       "name": "panel",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev", "--prefix", "panel"],
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--prefix",
+        "panel"
+      ],
       "port": 5173
+    },
+    {
+      "name": "api",
+      "runtimeExecutable": "C:/xampp/php/php.exe",
+      "runtimeArgs": [
+        "-S",
+        "127.0.0.1:8081",
+        "-t",
+        "api/public",
+        "api/public/index.php"
+      ],
+      "port": 8081
     }
   ]
 }
